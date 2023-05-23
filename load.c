@@ -1473,6 +1473,8 @@ rb_f_autoload_p(int argc, VALUE *argv, VALUE obj)
     return rb_mod_autoload_p(argc, argv, klass);
 }
 
+VALUE rb_current_namespace;
+
 void
 Init_load(void)
 {
@@ -1506,6 +1508,10 @@ Init_load(void)
     rb_define_method(rb_cModule, "autoload?", rb_mod_autoload_p, -1);
     rb_define_global_function("autoload", rb_f_autoload, 2);
     rb_define_global_function("autoload?", rb_f_autoload_p, -1);
+
+    rb_current_namespace = Qnil;
+    rb_define_hooked_variable("$CURRENT_NAMESPACE", &rb_current_namespace, 0, 0);
+    rb_gc_register_address(&rb_current_namespace);
 
     ruby_dln_librefs = rb_ary_hidden_new(0);
     rb_gc_register_mark_object(ruby_dln_librefs);
