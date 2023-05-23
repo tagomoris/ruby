@@ -768,6 +768,9 @@ rb_load_internal(VALUE fname, VALUE wrap)
         }
         state = load_wrapping(ec, fname, wrap);
     }
+    else if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
+        state = load_wrapping(ec, fname, rb_current_namespace);
+    }
     else {
         load_iseq_eval(ec, fname);
     }
@@ -1214,7 +1217,12 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
             else {
                 switch (found) {
                   case 'r':
-                    load_iseq_eval(ec, path);
+                    if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
+                      state = load_wrapping(ec, path, rb_current_namespace);
+                    }
+                    else {
+                      load_iseq_eval(ec, path);
+                    }
                     break;
 
                   case 's':
