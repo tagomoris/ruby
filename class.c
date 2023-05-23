@@ -969,6 +969,10 @@ rb_define_class(const char *name, VALUE super)
     ID id;
 
     id = rb_intern(name);
+    if (RTEST(rb_current_namespace)) {
+        return rb_define_class_id_under(rb_current_namespace, id, super);
+    }
+
     if (rb_const_defined(rb_cObject, id)) {
         klass = rb_const_get(rb_cObject, id);
         if (!RB_TYPE_P(klass, T_CLASS)) {
@@ -1079,6 +1083,9 @@ rb_define_module(const char *name)
     ID id;
 
     id = rb_intern(name);
+    if (RTEST(rb_current_namespace)) {
+        return rb_define_module_id_under(rb_current_namespace, id);
+    }
     if (rb_const_defined(rb_cObject, id)) {
         module = rb_const_get(rb_cObject, id);
         if (!RB_TYPE_P(module, T_MODULE)) {
