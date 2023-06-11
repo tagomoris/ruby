@@ -4,6 +4,8 @@ module NameSpace
   def self.new
     ns = Module.new
     ns.extend NameSpaceMethods
+    ns.instance_variable_set(:realpaths, {})
+    ns.instance_variable_set(:realpath_map, {})
     ns
   end
 

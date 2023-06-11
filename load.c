@@ -1180,6 +1180,12 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
     volatile VALUE realpath = 0;
     VALUE realpaths = get_loaded_features_realpaths(th->vm);
     VALUE realpath_map = get_loaded_features_realpath_map(th->vm);
+    if (RTEST(rb_current_namespace)) {
+        printf("require with namespace\n");
+        realpaths = rb_ivar_get(rb_current_namespace, rb_intern("realpaths"));
+        realpath_map = rb_ivar_get(rb_current_namespace, rb_intern("realpath_map"));
+        printf("swapped realpaths/realpath_map\n");
+    }
     volatile bool reset_ext_config = false;
     struct rb_ext_config prev_ext_config;
 
@@ -1196,41 +1202,58 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
         int found;
 
         RUBY_DTRACE_HOOK(FIND_REQUIRE_ENTRY, RSTRING_PTR(fname));
-        found = search_required(th->vm, path, &saved_path, rb_feature_p);
+        printf("calling search_required\n");
+        found = search_required(th->vm, path, &saved_path, rb_feature_p); /* ??????????? copy .so for in-namespace require? */
         RUBY_DTRACE_HOOK(FIND_REQUIRE_RETURN, RSTRING_PTR(fname));
         path = saved_path;
 
+        printf("trying rb_hash_aref\n");
+        // BOOOOOOOO
+        rb_obj_hide(realpaths);
+        RTEST(rb_hash_aref(realpaths, rb_id_quote_unprintable(rb_intern("rb"))));
+        printf("done rb_hash_aref\n");
         if (found) {
+            printf("the required file found\n");
             if (!path || !(ftptr = load_lock(th->vm, RSTRING_PTR(path), warn))) {
+                printf("a1\n");
                 result = 0;
             }
             else if (!*ftptr) {
+                printf("a2\n");
                 result = TAG_RETURN;
             }
             else if (found == 's' && run_static_ext_init(th->vm, RSTRING_PTR(path))) {
+                printf("a3\n");
                 result = TAG_RETURN;
             }
-            else if (RTEST(rb_hash_aref(realpaths,
+            else if (printf("rb_hash_aref realpaths\n") && RTEST(rb_hash_aref(realpaths,
                                         realpath = rb_realpath_internal(Qnil, path, 1)))) {
+                printf("a4\n");
                 result = 0;
             }
             else {
                 switch (found) {
                   case 'r':
+                    printf("found file r\n");
                     if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
-                      state = load_wrapping(ec, path, rb_current_namespace);
+                      printf("calling load_wrapping\n");
+                      load_wrapping(ec, path, rb_current_namespace);
+                      printf("called load_wrapping\n");
                     }
                     else {
+                      printf("calling load_iseq_eval\n");
                       load_iseq_eval(ec, path);
+                      printf("called load_iseq_eval\n");
                     }
                     break;
 
                   case 's':
+                    printf("found file s\n");
                     reset_ext_config = true;
                     ext_config_push(th, &prev_ext_config);
-                    handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,
+                    handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,                   /* *** */
                                                     path, VM_BLOCK_HANDLER_NONE, path);
-                    rb_ary_push(ruby_dln_librefs, LONG2NUM(handle));
+                    rb_ary_push(ruby_dln_librefs, LONG2NUM(handle)); // TODO: nan da kore?
                     break;
                 }
                 result = TAG_RETURN;
