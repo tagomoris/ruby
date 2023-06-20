@@ -665,12 +665,19 @@ rb_provide_feature(rb_vm_t *vm, VALUE feature)
     VALUE features;
 
     features = get_loaded_features(vm);
+    if (RTEST(rb_current_namespace)) {
+        features = rb_ivar_get(rb_current_namespace, rb_intern("@features"));
+    }
     if (OBJ_FROZEN(features)) {
         rb_raise(rb_eRuntimeError,
                  "$LOADED_FEATURES is frozen; cannot append feature");
     }
     feature = rb_fstring(feature);
 
+    if (RTEST(rb_current_namespace)) {
+        rb_ary_push(features, feature);
+    }
+    else {
     get_loaded_features_index(vm);
     // If loaded_features and loaded_features_snapshot share the same backing
     // array, pushing into it would cause the whole array to be copied.
@@ -679,6 +686,7 @@ rb_provide_feature(rb_vm_t *vm, VALUE feature)
     rb_ary_push(features, feature);
     features_index_add(vm, feature, INT2FIX(RARRAY_LEN(features)-1));
     reset_loaded_features_snapshot(vm);
+    }
 }
 
 void
@@ -988,21 +996,21 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
     *path = 0;
     ext = strrchr(ftptr = RSTRING_PTR(fname), '.');
     if (ext && !strchr(ext, '/')) {
-        if (IS_RBEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, TRUE, FALSE, &loading)) {
+        if (IS_RBEXT(ext)) { // the ext is .rb
+            if (rb_feature_p(vm, ftptr, ext, TRUE, FALSE, &loading)) { // .rb, rb(true), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 'r';
             }
-            if ((tmp = rb_find_file(fname)) != 0) {
+            if ((tmp = rb_find_file(fname)) != 0) { // the file path exists
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, TRUE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, TRUE, TRUE, &loading) || loading) // .??, rb(true), expanded(true) || loading
                     *path = tmp;
                 return 'r';
             }
             return 0;
         }
         else if (IS_SOEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) {
+            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) { // .so, rb(false), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 's';
             }
@@ -1011,25 +1019,25 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
             OBJ_FREEZE(tmp);
             if ((tmp = rb_find_file(tmp)) != 0) {
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading) // .so, rb(false), expanded(true)
                     *path = tmp;
                 return 's';
             }
         }
         else if (IS_DLEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) {
+            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) { // .dll, rb(false), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 's';
             }
             if ((tmp = rb_find_file(fname)) != 0) {
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading) // .dll, rb(false), expanded(true)
                     *path = tmp;
                 return 's';
             }
         }
     }
-    else if ((ft = rb_feature_p(vm, ftptr, 0, FALSE, FALSE, &loading)) == 'r') {
+    else if ((ft = rb_feature_p(vm, ftptr, 0, FALSE, FALSE, &loading)) == 'r') { // ZERO(ext), rb(false), expanded(false)
         if (loading) *path = rb_filesystem_str_new_cstr(loading);
         return 'r';
     }
@@ -1059,7 +1067,7 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
         if (ft)
             goto feature_present;
         ftptr = RSTRING_PTR(tmp);
-        return rb_feature_p(vm, ftptr, 0, FALSE, TRUE, 0);
+        return rb_feature_p(vm, ftptr, 0, FALSE, TRUE, 0); // ZERO(ext), rb(false), expanded(true)
 
       default:
         if (ft) {
@@ -1068,7 +1076,7 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
         /* fall through */
       case 1:
         ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-        if (rb_feature_p(vm, ftptr, ext, !--type, TRUE, &loading) && !loading)
+        if (rb_feature_p(vm, ftptr, ext, !--type, TRUE, &loading) && !loading) // ext(unknown), ??, expanded(true)
             break;
         *path = tmp;
     }
@@ -1156,6 +1164,20 @@ rb_ext_ractor_safe(bool flag)
     GET_THREAD()->ext_config.ractor_safe = flag;
 }
 
+static int
+namespace_feature_p(rb_vm_t *vm, const char *feature, const char *ext, int rb, int expanded, const char **fn)
+{
+    VALUE rbfname, rbext, method, result;
+    char *rstr;
+    rbfname = rb_str_new_cstr(feature);
+    rbext = ext == NULL ? Qnil : rb_str_new_cstr(ext);
+    method = rb_intern("is_loaded_feature?");
+    result = rb_funcall(rb_current_namespace, method, 4, rbfname, rb ? Qtrue : Qfalse, rbext, expanded ? Qtrue : Qfalse);
+    if (NIL_P(result)) return 0;
+    rstr = rb_string_value_cstr(&result);
+    return IS_RBEXT(rstr) ? 'r' : 's';
+}
+
 /*
  * returns
  *  0: if already loaded (false)
@@ -1180,14 +1202,15 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
     volatile VALUE realpath = 0;
     VALUE realpaths = get_loaded_features_realpaths(th->vm);
     VALUE realpath_map = get_loaded_features_realpath_map(th->vm);
-    if (RTEST(rb_current_namespace)) {
-        printf("require with namespace\n");
-        realpaths = rb_ivar_get(rb_current_namespace, rb_intern("realpaths"));
-        realpath_map = rb_ivar_get(rb_current_namespace, rb_intern("realpath_map"));
-        printf("swapped realpaths/realpath_map\n");
-    }
     volatile bool reset_ext_config = false;
     struct rb_ext_config prev_ext_config;
+    feature_func rb_feature_func_p = rb_feature_p;
+
+    if (RTEST(rb_current_namespace)) {
+        realpaths = rb_ivar_get(rb_current_namespace, rb_intern("@realpaths"));
+        realpath_map = rb_ivar_get(rb_current_namespace, rb_intern("@realpath_map"));
+        rb_feature_func_p = namespace_feature_p;
+    }
 
     fname = rb_get_path(fname);
     path = rb_str_encode_ospath(fname);
@@ -1202,53 +1225,53 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
         int found;
 
         RUBY_DTRACE_HOOK(FIND_REQUIRE_ENTRY, RSTRING_PTR(fname));
-        printf("calling search_required\n");
-        found = search_required(th->vm, path, &saved_path, rb_feature_p); /* ??????????? copy .so for in-namespace require? */
+        // printf("Resolving the feature.\n");
+        found = search_required(th->vm, path, &saved_path, rb_feature_func_p);
         RUBY_DTRACE_HOOK(FIND_REQUIRE_RETURN, RSTRING_PTR(fname));
         path = saved_path;
 
-        printf("trying rb_hash_aref\n");
-        // BOOOOOOOO
-        rb_obj_hide(realpaths);
-        RTEST(rb_hash_aref(realpaths, rb_id_quote_unprintable(rb_intern("rb"))));
-        printf("done rb_hash_aref\n");
+        // printf("Going to load.\n");
         if (found) {
-            printf("the required file found\n");
             if (!path || !(ftptr = load_lock(th->vm, RSTRING_PTR(path), warn))) {
-                printf("a1\n");
+                // TODO: have non-vm-wide loading table per namespace
+                // skip if it's under loading (circular loading)
+                // printf("a1\n");
                 result = 0;
             }
             else if (!*ftptr) {
-                printf("a2\n");
+                // TODO: what's the ftptr from load_lock ?
+                // printf("a2\n");
                 result = TAG_RETURN;
             }
             else if (found == 's' && run_static_ext_init(th->vm, RSTRING_PTR(path))) {
-                printf("a3\n");
+                // it's a statically linked and initialized
+                // printf("a3\n");
                 result = TAG_RETURN;
             }
-            else if (printf("rb_hash_aref realpaths\n") && RTEST(rb_hash_aref(realpaths,
+            else if (RTEST(rb_hash_aref(realpaths,
                                         realpath = rb_realpath_internal(Qnil, path, 1)))) {
-                printf("a4\n");
+                // the resolved realpath is already loaded (via different feature name)
+                // printf("a4\n");
                 result = 0;
             }
             else {
                 switch (found) {
                   case 'r':
-                    printf("found file r\n");
+                      // printf("found file r\n");
                     if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
-                      printf("calling load_wrapping\n");
+                      // printf("calling load_wrapping\n");
                       load_wrapping(ec, path, rb_current_namespace);
-                      printf("called load_wrapping\n");
+                      // printf("called load_wrapping\n");
                     }
                     else {
-                      printf("calling load_iseq_eval\n");
+                      // printf("calling load_iseq_eval\n");
                       load_iseq_eval(ec, path);
-                      printf("called load_iseq_eval\n");
+                      // printf("called load_iseq_eval\n");
                     }
                     break;
 
                   case 's':
-                    printf("found file s\n");
+                    // printf("found file s\n");
                     reset_ext_config = true;
                     ext_config_push(th, &prev_ext_config);
                     handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,                   /* *** */

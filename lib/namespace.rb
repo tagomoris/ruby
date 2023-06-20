@@ -1,11 +1,12 @@
 $MAIN = self
 
 module NameSpace
-  def self.new
+  def self.define
     ns = Module.new
     ns.extend NameSpaceMethods
-    ns.instance_variable_set(:realpaths, {})
-    ns.instance_variable_set(:realpath_map, {})
+    ns.instance_variable_set(:@features, [])
+    ns.instance_variable_set(:@realpaths, {}) # realpath => Qtrue
+    ns.instance_variable_set(:@realpath_map, {}) # feature => realpath
     ns
   end
 
@@ -16,6 +17,20 @@ module NameSpace
       yield
     ensure
       $CURRENT_NAMESPACE = prev_ns
+    end
+
+    def is_loaded_feature?(fname, rb, ext, expanded)
+      if expanded
+        if @features.include?(fname)
+          return fname.end_with?('.rb') ? '.rb' : '.so' # non-'.rb' extension is not always '.so', but anyway, it's not '.rb'
+        end
+      else
+        ext ||= (rb ? '.rb' : '.so')
+        if @features.include?(fname + ext)
+          return ext == '.rb' ? '.rb' : '.so'
+        end
+      end
+      nil
     end
 
     def require(fname)
