@@ -1238,58 +1238,41 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
         int found;
 
         RUBY_DTRACE_HOOK(FIND_REQUIRE_ENTRY, RSTRING_PTR(fname));
-        // printf("Resolving the feature.\n");
         found = search_required(th->vm, path, &saved_path, rb_feature_func_p);
         RUBY_DTRACE_HOOK(FIND_REQUIRE_RETURN, RSTRING_PTR(fname));
         path = saved_path;
 
-        // printf("Going to load.\n");
         if (found) {
             if (!path || !(ftptr = load_lock(th->vm, RSTRING_PTR(path), warn))) {
-                // TODO: have non-vm-wide loading table per namespace
-                // skip if it's under loading (circular loading)
-                // printf("a1\n");
                 result = 0;
             }
             else if (!*ftptr) {
-                // TODO: what's the ftptr from load_lock ?
-                // printf("a2\n");
                 result = TAG_RETURN;
             }
             else if (found == 's' && run_static_ext_init(th->vm, RSTRING_PTR(path))) {
-                // it's a statically linked and initialized
-                // printf("a3\n");
                 result = TAG_RETURN;
             }
             else if (RTEST(rb_hash_aref(realpaths,
                                         realpath = rb_realpath_internal(Qnil, path, 1)))) {
-                // the resolved realpath is already loaded (via different feature name)
-                // printf("a4\n");
                 result = 0;
             }
             else {
                 switch (found) {
                   case 'r':
-                      // printf("found file r\n");
                     if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
-                      // printf("calling load_wrapping\n");
                       load_wrapping(ec, path, rb_current_namespace);
-                      // printf("called load_wrapping\n");
                     }
                     else {
-                      // printf("calling load_iseq_eval\n");
                       load_iseq_eval(ec, path);
-                      // printf("called load_iseq_eval\n");
                     }
                     break;
 
                   case 's':
-                    // printf("found file s\n");
                     reset_ext_config = true;
                     ext_config_push(th, &prev_ext_config);
-                    handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,                   /* *** */
+                    handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,
                                                     path, VM_BLOCK_HANDLER_NONE, path);
-                    rb_ary_push(ruby_dln_librefs, LONG2NUM(handle)); // TODO: nan da kore?
+                    rb_ary_push(ruby_dln_librefs, LONG2NUM(handle));
                     break;
                 }
                 result = TAG_RETURN;
