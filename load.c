@@ -1096,8 +1096,21 @@ load_failed(VALUE fname)
 static VALUE
 load_ext(VALUE path)
 {
+    VALUE load_result;
+    VALUE original_path = path;
+    VALUE in_namespace = RTEST(rb_current_namespace);
+    if (in_namespace) {
+        path = rb_funcall(rb_current_namespace, rb_intern("ext_name_in_namespace"), 1, path);
+        printf("Copied ext path %s, from %s\n", RSTRING_PTR(path), RSTRING_PTR(original_path));
+        rb_scope_visibility_set(METHOD_VISI_PUBLIC);
+        load_result = (VALUE)dln_load_in_namespace(RSTRING_PTR(path), RSTRING_PTR(original_path));
+        printf("Should unlink %s\n", RSTRING_PTR(path));
+        // TODO: unlink(RSTRING_PTR(path))
+    } else {
     rb_scope_visibility_set(METHOD_VISI_PUBLIC);
-    return (VALUE)dln_load(RSTRING_PTR(path));
+    load_result = (VALUE)dln_load(RSTRING_PTR(path));
+    }
+    return load_result;
 }
 
 static bool

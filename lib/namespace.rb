@@ -1,6 +1,11 @@
+require 'tmpdir'
+require 'fileutils'
+
 $MAIN = self
 
 module NameSpace
+  NAMESPACE_TMP_DIR = Dir.tmpdir
+
   def self.define
     ns = Module.new
     ns.extend NameSpaceMethods
@@ -31,6 +36,13 @@ module NameSpace
         end
       end
       nil
+    end
+
+    def ext_name_in_namespace(path)
+      newname = self.object_id.to_s + '_' + File.basename(path)
+      newpath = File.join(NAMESPACE_TMP_DIR, newname)
+      FileUtils.cp(path, newpath, preserve: true)
+      newpath
     end
 
     def require(fname)
