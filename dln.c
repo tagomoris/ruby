@@ -374,7 +374,7 @@ dln_open(const char *file)
 # endif
 
     /* Load file */
-    handle = dlopen(file, RTLD_LAZY|RTLD_GLOBAL);
+    handle = dlopen(file, RTLD_LAZY|RTLD_LOCAL);
     if (handle == NULL) {
         error = dln_strerror();
         goto failed;
