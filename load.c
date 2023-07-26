@@ -141,6 +141,9 @@ get_expanded_load_path(rb_vm_t *vm)
 VALUE
 rb_get_expanded_load_path(void)
 {
+    if (RTEST(rb_current_namespace)) {
+        return rb_ivar_get(rb_current_namespace, rb_intern("@LOAD_PATH"));
+    }
     return get_expanded_load_path(GET_VM());
 }
 
