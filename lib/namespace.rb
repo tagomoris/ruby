@@ -1,5 +1,6 @@
 require 'tmpdir'
 require 'fileutils'
+require 'rubygems'
 
 $MAIN = self
 
@@ -46,7 +47,24 @@ module NameSpace
       newpath
     end
 
-    def require(fname)
+    private def gem_dirs(fname, version)
+      base = Gem.dir
+      arch_name = Dir.open(File.join(base, 'extensions')){|dir| dir.children }.first
+      ext_dir_name = Dir.open(File.join(base, 'extensions', arch_name)){|dir| dir.children }.first
+      gem_dir = "#{fname}-#{version}"
+      [
+        File.join(base, 'extensions', arch_name, ext_dir_name, gem_dir),
+        File.join(base, 'gems', gem_dir, 'lib'),
+      ]
+    end
+
+    def require(fname, version: nil)
+      if version
+        gem_dirs(fname, version).each do |dir|
+          @LOAD_PATH.unshift dir
+        end
+      end
+
       in_this_namespace{ $MAIN.__send__(:require, fname) }
     end
 
