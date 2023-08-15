@@ -19,6 +19,8 @@
 #include "ruby/util.h"
 
 static VALUE ruby_dln_librefs;
+VALUE rb_ext_handle_map_global;
+VALUE rb_current_namespace;
 
 #define IS_RBEXT(e) (strcmp((e), ".rb") == 0)
 #define IS_SOEXT(e) (strcmp((e), ".so") == 0 || strcmp((e), ".o") == 0)
@@ -1216,6 +1218,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
     volatile VALUE realpath = 0;
     VALUE realpaths = get_loaded_features_realpaths(th->vm);
     VALUE realpath_map = get_loaded_features_realpath_map(th->vm);
+    VALUE ext_handles = rb_ext_handle_map_global;
     volatile bool reset_ext_config = false;
     struct rb_ext_config prev_ext_config;
     feature_func rb_feature_func_p = rb_feature_p;
@@ -1224,6 +1227,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
         realpaths = rb_ivar_get(rb_current_namespace, rb_intern("@realpaths"));
         realpath_map = rb_ivar_get(rb_current_namespace, rb_intern("@realpath_map"));
         rb_feature_func_p = namespace_feature_p;
+        ext_handles = rb_ivar_get(rb_current_namespace, rb_intern("@ext_handles"));
     }
 
     fname = rb_get_path(fname);
@@ -1274,6 +1278,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
                     handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,
                                                     path, VM_BLOCK_HANDLER_NONE, path);
                     rb_ary_push(ruby_dln_librefs, LONG2NUM(handle));
+                    rb_hash_aset(ext_handles, rb_funcall(rb_cFile, rb_intern("basename"), 1, fname), LONG2NUM(handle));
                     break;
                 }
                 result = TAG_RETURN;
@@ -1524,8 +1529,6 @@ rb_f_autoload_p(int argc, VALUE *argv, VALUE obj)
     return rb_mod_autoload_p(argc, argv, klass);
 }
 
-VALUE rb_current_namespace;
-
 void
 Init_load(void)
 {
@@ -1563,6 +1566,10 @@ Init_load(void)
     rb_current_namespace = Qnil;
     rb_define_hooked_variable("$CURRENT_NAMESPACE", &rb_current_namespace, 0, 0);
     rb_gc_register_address(&rb_current_namespace);
+
+    rb_ext_handle_map_global = rb_hash_new();
+    rb_define_hooked_variable("$EXT_HANDLES_GLOBAL", &rb_ext_handle_map_global, 0, 0);
+    rb_gc_register_address(&rb_ext_handle_map_global);
 
     ruby_dln_librefs = rb_ary_hidden_new(0);
     rb_gc_register_mark_object(ruby_dln_librefs);

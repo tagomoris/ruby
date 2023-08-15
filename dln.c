@@ -543,3 +543,20 @@ dln_load_in_namespace(const char *file, const char *original)
 
     return 0;			/* dummy return */
 }
+
+void *
+resolve_ext_symbol(const char *ext_name, const char *name)
+{
+    VALUE ext_handles = rb_ext_handle_map_global;
+    VALUE handle_value;
+    long handle;
+    if (RTEST(rb_current_namespace)) {
+        ext_handles = rb_ivar_get(rb_current_namespace, rb_intern("@ext_handles"));
+    }
+    handle_value = rb_hash_aref(ext_handles, rb_str_new_cstr(ext_name));
+    if (!RTEST(handle_value)) {
+        return NULL;
+    }
+    handle = NUM2LONG(handle_value);
+    return (void*)dln_sym(handle, name);
+}

@@ -212,6 +212,9 @@ void rb_ext_ractor_safe(bool flag);
 #define HAVE_RB_EXT_RACTOR_SAFE 1
 
 RUBY_EXTERN VALUE rb_current_namespace;
+RUBY_EXTERN VALUE rb_ext_handle_map_global;
+
+void *resolve_ext_symbol(const char *ext_name, const char *name);
 
 /** @} */
 

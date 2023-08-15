@@ -13,6 +13,7 @@ module NameSpace
     ns.instance_variable_set(:@features, [])
     ns.instance_variable_set(:@realpaths, {}) # realpath => Qtrue
     ns.instance_variable_set(:@realpath_map, {}) # feature => realpath
+    ns.instance_variable_set(:@ext_handles, {}) # name => handle
     ns.instance_variable_set(:@LOAD_PATH, $LOAD_PATH.dup)
     ns
   end
