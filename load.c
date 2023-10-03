@@ -19,6 +19,8 @@
 #include "ruby/util.h"
 
 static VALUE ruby_dln_librefs;
+VALUE rb_ext_handle_map_global;
+VALUE rb_current_namespace;
 
 #define IS_RBEXT(e) (strcmp((e), ".rb") == 0)
 #define IS_SOEXT(e) (strcmp((e), ".so") == 0 || strcmp((e), ".o") == 0)
@@ -141,6 +143,9 @@ get_expanded_load_path(rb_vm_t *vm)
 VALUE
 rb_get_expanded_load_path(void)
 {
+    if (RTEST(rb_current_namespace)) {
+        return rb_ivar_get(rb_current_namespace, rb_intern("@LOAD_PATH"));
+    }
     return get_expanded_load_path(GET_VM());
 }
 
@@ -665,12 +670,19 @@ rb_provide_feature(rb_vm_t *vm, VALUE feature)
     VALUE features;
 
     features = get_loaded_features(vm);
+    if (RTEST(rb_current_namespace)) {
+        features = rb_ivar_get(rb_current_namespace, rb_intern("@features"));
+    }
     if (OBJ_FROZEN(features)) {
         rb_raise(rb_eRuntimeError,
                  "$LOADED_FEATURES is frozen; cannot append feature");
     }
     feature = rb_fstring(feature);
 
+    if (RTEST(rb_current_namespace)) {
+        rb_ary_push(features, feature);
+    }
+    else {
     get_loaded_features_index(vm);
     // If loaded_features and loaded_features_snapshot share the same backing
     // array, pushing into it would cause the whole array to be copied.
@@ -679,6 +691,7 @@ rb_provide_feature(rb_vm_t *vm, VALUE feature)
     rb_ary_push(features, feature);
     features_index_add(vm, feature, INT2FIX(RARRAY_LEN(features)-1));
     reset_loaded_features_snapshot(vm);
+    }
 }
 
 void
@@ -767,6 +780,9 @@ rb_load_internal(VALUE fname, VALUE wrap)
             wrap = rb_module_new();
         }
         state = load_wrapping(ec, fname, wrap);
+    }
+    else if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
+        state = load_wrapping(ec, fname, rb_current_namespace);
     }
     else {
         load_iseq_eval(ec, fname);
@@ -985,21 +1001,21 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
     *path = 0;
     ext = strrchr(ftptr = RSTRING_PTR(fname), '.');
     if (ext && !strchr(ext, '/')) {
-        if (IS_RBEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, TRUE, FALSE, &loading)) {
+        if (IS_RBEXT(ext)) { // the ext is .rb
+            if (rb_feature_p(vm, ftptr, ext, TRUE, FALSE, &loading)) { // .rb, rb(true), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 'r';
             }
-            if ((tmp = rb_find_file(fname)) != 0) {
+            if ((tmp = rb_find_file(fname)) != 0) { // the file path exists
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, TRUE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, TRUE, TRUE, &loading) || loading) // .??, rb(true), expanded(true) || loading
                     *path = tmp;
                 return 'r';
             }
             return 0;
         }
         else if (IS_SOEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) {
+            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) { // .so, rb(false), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 's';
             }
@@ -1008,25 +1024,25 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
             OBJ_FREEZE(tmp);
             if ((tmp = rb_find_file(tmp)) != 0) {
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading) // .so, rb(false), expanded(true)
                     *path = tmp;
                 return 's';
             }
         }
         else if (IS_DLEXT(ext)) {
-            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) {
+            if (rb_feature_p(vm, ftptr, ext, FALSE, FALSE, &loading)) { // .dll, rb(false), expanded(false)
                 if (loading) *path = rb_filesystem_str_new_cstr(loading);
                 return 's';
             }
             if ((tmp = rb_find_file(fname)) != 0) {
                 ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading)
+                if (!rb_feature_p(vm, ftptr, ext, FALSE, TRUE, &loading) || loading) // .dll, rb(false), expanded(true)
                     *path = tmp;
                 return 's';
             }
         }
     }
-    else if ((ft = rb_feature_p(vm, ftptr, 0, FALSE, FALSE, &loading)) == 'r') {
+    else if ((ft = rb_feature_p(vm, ftptr, 0, FALSE, FALSE, &loading)) == 'r') { // ZERO(ext), rb(false), expanded(false)
         if (loading) *path = rb_filesystem_str_new_cstr(loading);
         return 'r';
     }
@@ -1056,7 +1072,7 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
         if (ft)
             goto feature_present;
         ftptr = RSTRING_PTR(tmp);
-        return rb_feature_p(vm, ftptr, 0, FALSE, TRUE, 0);
+        return rb_feature_p(vm, ftptr, 0, FALSE, TRUE, 0); // ZERO(ext), rb(false), expanded(true)
 
       default:
         if (ft) {
@@ -1065,7 +1081,7 @@ search_required(rb_vm_t *vm, VALUE fname, volatile VALUE *path, feature_func rb_
         /* fall through */
       case 1:
         ext = strrchr(ftptr = RSTRING_PTR(tmp), '.');
-        if (rb_feature_p(vm, ftptr, ext, !--type, TRUE, &loading) && !loading)
+        if (rb_feature_p(vm, ftptr, ext, !--type, TRUE, &loading) && !loading) // ext(unknown), ??, expanded(true)
             break;
         *path = tmp;
     }
@@ -1085,8 +1101,19 @@ load_failed(VALUE fname)
 static VALUE
 load_ext(VALUE path)
 {
+    VALUE load_result;
+    VALUE original_path = path;
+    VALUE in_namespace = RTEST(rb_current_namespace);
+    if (in_namespace) {
+        path = rb_funcall(rb_current_namespace, rb_intern("ext_name_in_namespace"), 1, path);
+        rb_scope_visibility_set(METHOD_VISI_PUBLIC);
+        load_result = (VALUE)dln_load_in_namespace(RSTRING_PTR(path), RSTRING_PTR(original_path));
+        unlink(RSTRING_PTR(path));
+    } else {
     rb_scope_visibility_set(METHOD_VISI_PUBLIC);
-    return (VALUE)dln_load(RSTRING_PTR(path));
+    load_result = (VALUE)dln_load(RSTRING_PTR(path));
+    }
+    return load_result;
 }
 
 static bool
@@ -1153,6 +1180,20 @@ rb_ext_ractor_safe(bool flag)
     GET_THREAD()->ext_config.ractor_safe = flag;
 }
 
+static int
+namespace_feature_p(rb_vm_t *vm, const char *feature, const char *ext, int rb, int expanded, const char **fn)
+{
+    VALUE rbfname, rbext, method, result;
+    char *rstr;
+    rbfname = rb_str_new_cstr(feature);
+    rbext = ext == NULL ? Qnil : rb_str_new_cstr(ext);
+    method = rb_intern("is_loaded_feature?");
+    result = rb_funcall(rb_current_namespace, method, 4, rbfname, rb ? Qtrue : Qfalse, rbext, expanded ? Qtrue : Qfalse);
+    if (NIL_P(result)) return 0;
+    rstr = rb_string_value_cstr(&result);
+    return IS_RBEXT(rstr) ? 'r' : 's';
+}
+
 /*
  * returns
  *  0: if already loaded (false)
@@ -1177,8 +1218,17 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
     volatile VALUE realpath = 0;
     VALUE realpaths = get_loaded_features_realpaths(th->vm);
     VALUE realpath_map = get_loaded_features_realpath_map(th->vm);
+    VALUE ext_handles = rb_ext_handle_map_global;
     volatile bool reset_ext_config = false;
     struct rb_ext_config prev_ext_config;
+    feature_func rb_feature_func_p = rb_feature_p;
+
+    if (RTEST(rb_current_namespace)) {
+        realpaths = rb_ivar_get(rb_current_namespace, rb_intern("@realpaths"));
+        realpath_map = rb_ivar_get(rb_current_namespace, rb_intern("@realpath_map"));
+        rb_feature_func_p = namespace_feature_p;
+        ext_handles = rb_ivar_get(rb_current_namespace, rb_intern("@ext_handles"));
+    }
 
     fname = rb_get_path(fname);
     path = rb_str_encode_ospath(fname);
@@ -1193,7 +1243,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
         int found;
 
         RUBY_DTRACE_HOOK(FIND_REQUIRE_ENTRY, RSTRING_PTR(fname));
-        found = search_required(th->vm, path, &saved_path, rb_feature_p);
+        found = search_required(th->vm, path, &saved_path, rb_feature_func_p);
         RUBY_DTRACE_HOOK(FIND_REQUIRE_RETURN, RSTRING_PTR(fname));
         path = saved_path;
 
@@ -1214,7 +1264,12 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
             else {
                 switch (found) {
                   case 'r':
-                    load_iseq_eval(ec, path);
+                    if (RTEST(rb_current_namespace) && RB_TYPE_P(rb_current_namespace, T_MODULE)) {
+                      load_wrapping(ec, path, rb_current_namespace);
+                    }
+                    else {
+                      load_iseq_eval(ec, path);
+                    }
                     break;
 
                   case 's':
@@ -1223,6 +1278,8 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
                     handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,
                                                     path, VM_BLOCK_HANDLER_NONE, path);
                     rb_ary_push(ruby_dln_librefs, LONG2NUM(handle));
+                    // TODO: This must be per-namespace
+                    rb_hash_aset(ext_handles, rb_funcall(rb_cFile, rb_intern("basename"), 1, fname), LONG2NUM(handle));
                     break;
                 }
                 result = TAG_RETURN;
@@ -1506,6 +1563,14 @@ Init_load(void)
     rb_define_method(rb_cModule, "autoload?", rb_mod_autoload_p, -1);
     rb_define_global_function("autoload", rb_f_autoload, 2);
     rb_define_global_function("autoload?", rb_f_autoload_p, -1);
+
+    rb_current_namespace = Qnil;
+    rb_define_hooked_variable("$CURRENT_NAMESPACE", &rb_current_namespace, 0, 0);
+    rb_gc_register_address(&rb_current_namespace);
+
+    rb_ext_handle_map_global = rb_hash_new();
+    rb_define_hooked_variable("$EXT_HANDLES_GLOBAL", &rb_ext_handle_map_global, 0, 0);
+    rb_gc_register_address(&rb_ext_handle_map_global);
 
     ruby_dln_librefs = rb_ary_hidden_new(0);
     rb_gc_register_mark_object(ruby_dln_librefs);

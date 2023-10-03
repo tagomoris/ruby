@@ -374,7 +374,7 @@ dln_open(const char *file)
 # endif
 
     /* Load file */
-    handle = dlopen(file, RTLD_LAZY|RTLD_GLOBAL);
+    handle = dlopen(file, RTLD_LAZY|RTLD_LOCAL);
     if (handle == NULL) {
         error = dln_strerror();
         goto failed;
@@ -498,4 +498,65 @@ dln_load(const char *file)
 #endif
 
     return 0;			/* dummy return */
+}
+
+void *
+dln_load_in_namespace(const char *file, const char *original)
+{
+#if defined(_WIN32) || defined(USE_DLN_DLOPEN)
+    void *handle = dln_open(file);
+
+#ifdef RUBY_DLN_CHECK_ABI
+    unsigned long long (*abi_version_fct)(void) = (unsigned long long(*)(void))dln_sym(handle, "ruby_abi_version");
+    unsigned long long binary_abi_version = (*abi_version_fct)();
+    if (binary_abi_version != ruby_abi_version() && abi_check_enabled_p()) {
+        dln_loaderror("incompatible ABI version of binary - %s", file);
+    }
+#endif
+
+    char *init_fct_name;
+    init_funcname(&init_fct_name, original);
+    void (*init_fct)(void) = (void(*)(void))dln_sym(handle, init_fct_name);
+
+    /* Call the init code */
+    (*init_fct)();
+
+    return handle;
+
+#elif defined(_AIX)
+    {
+        void (*init_fct)(void);
+
+        init_fct = (void(*)(void))load((char*)file, 1, 0);
+        if (init_fct == NULL) {
+            aix_loaderror(file);
+        }
+        if (loadbind(0, (void*)dln_load, (void*)init_fct) == -1) {
+            aix_loaderror(file);
+        }
+        (*init_fct)();
+        return (void*)init_fct;
+    }
+#else
+    dln_notimplement();
+#endif
+
+    return 0;			/* dummy return */
+}
+
+void *
+resolve_ext_symbol(const char *ext_name, const char *name)
+{
+    VALUE ext_handles = rb_ext_handle_map_global;
+    VALUE handle_value;
+    long handle;
+    if (RTEST(rb_current_namespace)) {
+        ext_handles = rb_ivar_get(rb_current_namespace, rb_intern("@ext_handles"));
+    }
+    handle_value = rb_hash_aref(ext_handles, rb_str_new_cstr(ext_name));
+    if (!RTEST(handle_value)) {
+        return NULL;
+    }
+    handle = NUM2LONG(handle_value);
+    return (void*)dln_sym(handle, name);
 }
