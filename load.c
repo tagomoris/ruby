@@ -1278,6 +1278,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
                     handle = (long)rb_vm_call_cfunc(rb_vm_top_self(), load_ext,
                                                     path, VM_BLOCK_HANDLER_NONE, path);
                     rb_ary_push(ruby_dln_librefs, LONG2NUM(handle));
+                    // TODO: This must be per-namespace
                     rb_hash_aset(ext_handles, rb_funcall(rb_cFile, rb_intern("basename"), 1, fname), LONG2NUM(handle));
                     break;
                 }
