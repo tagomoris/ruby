@@ -21,6 +21,7 @@
 #include "internal/gc.h"
 #include "internal/inits.h"
 #include "internal/missing.h"
+#include "internal/namespace.h"
 #include "internal/object.h"
 #include "internal/proc.h"
 #include "internal/re.h"
@@ -2804,6 +2805,26 @@ rb_vm_call_cfunc(VALUE recv, VALUE (*func)(VALUE), VALUE arg,
     return val;
 }
 
+VALUE
+rb_vm_call_cfunc2(VALUE recv, VALUE (*func)(VALUE, VALUE), VALUE arg1, VALUE arg2,
+                 VALUE block_handler, VALUE filename)
+{
+    rb_execution_context_t *ec = GET_EC();
+    const rb_control_frame_t *reg_cfp = ec->cfp;
+    const rb_iseq_t *iseq = rb_iseq_new(0, filename, filename, Qnil, 0, ISEQ_TYPE_TOP);
+    VALUE val;
+
+    vm_push_frame(ec, iseq, VM_FRAME_MAGIC_TOP | VM_ENV_FLAG_LOCAL | VM_FRAME_FLAG_FINISH,
+                  recv, block_handler,
+                  (VALUE)vm_cref_new_toplevel(ec), /* cref or me */
+                  0, reg_cfp->sp, 0, 0);
+
+    val = (*func)(arg1, arg2);
+
+    rb_vm_pop_frame(ec);
+    return val;
+}
+
 /* vm */
 
 void
@@ -3413,6 +3434,10 @@ thread_mark(void *ptr)
     RUBY_MARK_UNLESS_NULL(th->pending_interrupt_mask_stack);
     RUBY_MARK_UNLESS_NULL(th->top_self);
     RUBY_MARK_UNLESS_NULL(th->top_wrapper);
+    RUBY_MARK_UNLESS_NULL(th->namespaces);
+    if (th->ns) {
+        rb_namespace_entry_mark(th->ns);
+    }
     if (th->root_fiber) rb_fiber_mark_self(th->root_fiber);
 
     RUBY_ASSERT(th->ec == rb_fiberptr_get_ec(th->ec->fiber_ptr));
@@ -4136,6 +4161,8 @@ Init_VM(void)
         th->vm = vm;
         th->top_wrapper = 0;
         th->top_self = rb_vm_top_self();
+        th->namespaces = 0;
+        th->ns = 0;
 
         rb_gc_register_mark_object((VALUE)iseq);
         th->ec->cfp->iseq = iseq;

@@ -24,6 +24,7 @@
 #include "internal/class.h"
 #include "internal/eval.h"
 #include "internal/hash.h"
+#include "internal/namespace.h"
 #include "internal/object.h"
 #include "internal/string.h"
 #include "internal/variable.h"
@@ -973,8 +974,12 @@ rb_define_class(const char *name, VALUE super)
 {
     VALUE klass;
     ID id;
+    rb_namespace_t *ns = GET_THREAD()->ns;
 
     id = rb_intern(name);
+    if (ns) {
+        return rb_define_class_id_under(ns->ns_object, id, super);
+    }
     if (rb_const_defined(rb_cObject, id)) {
         klass = rb_const_get(rb_cObject, id);
         if (!RB_TYPE_P(klass, T_CLASS)) {
@@ -1083,8 +1088,12 @@ rb_define_module(const char *name)
 {
     VALUE module;
     ID id;
+    rb_namespace_t *ns = GET_THREAD()->ns;
 
     id = rb_intern(name);
+    if (ns) {
+        return rb_define_module_id_under(ns->ns_object, id);
+    }
     if (rb_const_defined(rb_cObject, id)) {
         module = rb_const_get(rb_cObject, id);
         if (!RB_TYPE_P(module, T_MODULE)) {

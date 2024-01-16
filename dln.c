@@ -137,6 +137,20 @@ static const char funcname_prefix[sizeof(FUNCNAME_PREFIX) - 1] = FUNCNAME_PREFIX
     tmp[plen+flen] = '\0';\
     *(buf) = tmp;\
 } while (0)
+
+#define init_feature_funcname(buf, fname) do {\
+    const char *base = (fname);\
+    const size_t flen = init_funcname_len(&base);\
+    const size_t plen = sizeof(funcname_prefix);\
+    char *const tmp = ALLOCA_N(char, plen+flen+1);\
+    if (!tmp) {\
+        dln_memerror();\
+    }\
+    memcpy(tmp, funcname_prefix, plen);\
+    memcpy(tmp+plen, base, flen);\
+    tmp[plen+flen] = '\0';\
+    *(buf) = tmp;\
+} while (0)
 #endif
 
 #ifdef USE_DLN_DLOPEN
@@ -376,7 +390,7 @@ dln_open(const char *file)
 # endif
 
     /* Load file */
-    handle = dlopen(file, RTLD_LAZY|RTLD_GLOBAL);
+    handle = dlopen(file, RTLD_LAZY|RTLD_LOCAL); // RTLD_LAZY|RTLD_GLOBAL);
     if (handle == NULL) {
         error = dln_strerror();
         goto failed;
@@ -488,8 +502,8 @@ abi_check_enabled_p(void)
 }
 #endif
 
-void *
-dln_load(const char *file)
+static void *
+dln_load_and_init(const char *file, const char *init_fct_name)
 {
 #if defined(_WIN32) || defined(USE_DLN_DLOPEN)
     void *handle = dln_open(file);
@@ -503,9 +517,6 @@ dln_load(const char *file)
     }
 #endif
 
-    char *init_fct_name;
-    init_funcname(&init_fct_name, file);
-
     /* Call the init code */
     dln_sym_callable(void, (void), handle, init_fct_name)();
 
@@ -515,6 +526,7 @@ dln_load(const char *file)
     {
         void (*init_fct)(void);
 
+        /* TODO: check - AIX's load system call will return the first/last symbol/function? */
         init_fct = (void(*)(void))load((char*)file, 1, 0);
         if (init_fct == NULL) {
             aix_loaderror(file);
@@ -530,4 +542,20 @@ dln_load(const char *file)
 #endif
 
     return 0;			/* dummy return */
+}
+
+void *
+dln_load(const char *file)
+{
+    char *init_fct_name;
+    init_funcname(&init_fct_name, file);
+    return dln_load_and_init(file, init_fct_name);
+}
+
+void *
+dln_load_feature(const char *file, const char *fname)
+{
+    char *init_fct_name;
+    init_feature_funcname(&init_fct_name, fname);
+    return dln_load_and_init(file, init_fct_name);
 }

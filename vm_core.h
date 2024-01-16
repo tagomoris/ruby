@@ -94,6 +94,7 @@ extern int ruby_assert_critical_section_entered;
 #include "internal.h"
 #include "internal/array.h"
 #include "internal/basic_operators.h"
+#include "internal/namespace.h"
 #include "internal/sanitizers.h"
 #include "internal/serial.h"
 #include "internal/vm.h"
@@ -1086,6 +1087,9 @@ typedef struct rb_thread_struct {
     /* for load(true) */
     VALUE top_self;
     VALUE top_wrapper;
+    /* for namespace */
+    VALUE namespaces; // Stack of namespaces
+    rb_namespace_t *ns; // The current one
 
     /* thread control */
 
