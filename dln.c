@@ -26,6 +26,7 @@ static void dln_loaderror(const char *format, ...);
 #include "dln.h"
 #include "internal.h"
 #include "internal/compilers.h"
+#include "internal/namespace.h"
 
 #ifdef HAVE_STDLIB_H
 # include <stdlib.h>
@@ -390,7 +391,8 @@ dln_open(const char *file)
 # endif
 
     /* Load file */
-    handle = dlopen(file, RTLD_LAZY|RTLD_LOCAL); // RTLD_LAZY|RTLD_GLOBAL);
+    int mode = rb_namespace_available() ? RTLD_LAZY|RTLD_LOCAL : RTLD_LAZY|RTLD_GLOBAL;
+    handle = dlopen(file, mode);
     if (handle == NULL) {
         error = dln_strerror();
         goto failed;

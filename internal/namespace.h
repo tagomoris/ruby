@@ -55,6 +55,8 @@ typedef struct rb_namespace_struct rb_namespace_t;
 #define SET_LOAD_PATH_CHECK_CACHE(th, value) SET_NS_x(th, load_path_check_cache, value)
 #define SET_EXPANDED_LOAD_PATH(th, value) SET_NS_x(th, expanded_load_path, value)
 
+int rb_namespace_available(void);
+
 void rb_namespace_entry_mark(void *);
 
 rb_namespace_t * rb_namespace_alloc_init(void);

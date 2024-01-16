@@ -2,6 +2,8 @@
 require 'test/unit'
 
 class Test_Load_Extensions < Test::Unit::TestCase
+  ENV_ENABLE_NAMESPACE = {'RUBY_NAMESPACE' => '1'}
+
   def test_load_extension
     assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
     begin;
@@ -28,7 +30,7 @@ class Test_Load_Extensions < Test::Unit::TestCase
   end
 
   def test_load_extension_in_namespace
-    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    assert_separately([ENV_ENABLE_NAMESPACE], "#{<<~"begin;"}\n#{<<~'end;'}")
     begin;
       ns = Namespace.new
       ns.require '-test-/namespace/yay1'
@@ -38,7 +40,7 @@ class Test_Load_Extensions < Test::Unit::TestCase
   end
 
   def test_different_version_extensions
-    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    assert_separately([ENV_ENABLE_NAMESPACE], "#{<<~"begin;"}\n#{<<~'end;'}")
     begin;
       ns1 = Namespace.new
       ns2 = Namespace.new
@@ -56,7 +58,7 @@ class Test_Load_Extensions < Test::Unit::TestCase
   end
 
   def test_loading_extensions_from_global_to_local
-    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    assert_separately([ENV_ENABLE_NAMESPACE], "#{<<~"begin;"}\n#{<<~'end;'}")
     begin;
       require '-test-/namespace/yay1'
       assert_equal "1.0.0", Yay.version
@@ -72,7 +74,7 @@ class Test_Load_Extensions < Test::Unit::TestCase
   end
 
   def test_loading_extensions_from_local_to_global
-    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    assert_separately([ENV_ENABLE_NAMESPACE], "#{<<~"begin;"}\n#{<<~'end;'}")
     begin;
       ns = Namespace.new
       ns.require '-test-/namespace/yay1'

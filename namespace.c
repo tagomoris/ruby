@@ -22,6 +22,27 @@ static char *tmp_dir;
 # define MAXPATHLEN 1024
 #endif
 
+static int namespace_availability = 0;
+
+int
+rb_namespace_available()
+{
+    const char *env;
+    if (namespace_availability) {
+        return namespace_availability > 0 ? 1 : 0;
+    }
+    // TODO: command line option?
+    env = getenv("RUBY_NAMESPACE");
+    if (env && strlen(env) > 0) {
+        if (strcmp(env, "1") == 0) {
+            namespace_availability = 1;
+            return 1;
+        }
+    }
+    namespace_availability = -1;
+    return 0;
+}
+
 static void
 namespace_entry_initialize(rb_namespace_t *entry)
 {
@@ -134,6 +155,9 @@ rb_get_namespace_t(VALUE namespace)
 static VALUE
 namespace_initialize(VALUE namespace)
 {
+    if (!rb_namespace_available()) {
+        rb_warning("Namespace is disabled (RUBY_NAMESPACE is not set), so loading extensions may cause unexpected behaviors.");
+    }
     VALUE entry = rb_class_new_instance_pass_kw(0, NULL, rb_cNamespaceEntry);
     rb_namespace_t *ns = get_namespace_struct_internal(entry);
     ns->ns_object = namespace;
@@ -141,6 +165,28 @@ namespace_initialize(VALUE namespace)
     ns->load_path = GET_VM()->load_path; /* TODO: Should it be the load_path of the current namespace in namespaces? */
     rb_ivar_set(namespace, rb_intern("@_namespace_entry"), entry);
     return namespace;
+}
+
+static VALUE
+rb_namespace_s_getenabled(VALUE namespace)
+{
+    return RBOOL(rb_namespace_available());
+}
+
+static VALUE
+rb_namespace_s_setenabled(VALUE namespace, VALUE arg)
+{
+    switch (arg) {
+    case Qnil:
+        namespace_availability = 0; // reset the forced setting
+        break;
+    case Qfalse:
+        namespace_availability = -1; // disable forcibly
+        break;
+    default:
+        namespace_availability = 1; // enable namespaces
+    }
+    return arg;
 }
 
 static VALUE
@@ -458,6 +504,8 @@ Init_Namespace(void)
     rb_cNamespaceEntry = rb_define_class_under(rb_cNamespace, "Entry", rb_cObject);
     rb_define_alloc_func(rb_cNamespaceEntry, rb_namespace_entry_alloc);
 
+    rb_define_singleton_method(rb_cNamespace, "enabled", rb_namespace_s_getenabled, 0);
+    rb_define_singleton_method(rb_cNamespace, "enabled=", rb_namespace_s_setenabled, 1);
     rb_define_singleton_method(rb_cNamespace, "current", rb_namespace_current, 0);
 
     rb_define_method(rb_cNamespace, "load_path", rb_namespace_load_path, 0);

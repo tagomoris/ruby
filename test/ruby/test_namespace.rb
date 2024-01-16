@@ -4,7 +4,21 @@ require 'test/unit'
 
 class TestNamespace < Test::Unit::TestCase
   def setup
+    Namespace.enabled = true
     @n = Namespace.new
+  end
+
+  def teardown
+    Namespace.enabled = nil
+  end
+
+  def test_namespace_availability
+    Namespace.enabled = nil
+    assert !Namespace.enabled
+    Namespace.enabled = true
+    assert Namespace.enabled
+    Namespace.enabled = false
+    assert !Namespace.enabled
   end
 
   def test_current_namespace
