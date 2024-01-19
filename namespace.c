@@ -22,6 +22,12 @@ static char *tmp_dir;
 # define MAXPATHLEN 1024
 #endif
 
+#if defined(_WIN32)
+# define DIRSEP "\\"
+#else
+# define DIRSEP "/"
+#endif
+
 static int namespace_availability = 0;
 
 int
@@ -287,7 +293,7 @@ system_tmpdir(void)
 static int
 sprint_ext_filename(char *str, size_t size, long namespace_id, const char *prefix, const char *basename)
 {
-    return snprintf(str, size, "%s/%sp%"PRI_PIDT_PREFIX"uu_%ld_%s", tmp_dir, prefix, getpid(), namespace_id, basename);
+    return snprintf(str, size, "%s%s%sp%"PRI_PIDT_PREFIX"uu_%ld_%s", tmp_dir, DIRSEP, prefix, getpid(), namespace_id, basename);
 }
 
 #ifdef _WIN32
@@ -334,7 +340,18 @@ static int
 copy_ext_file(char *src_path, char *dst_path)
 {
 #if defined(_WIN32)
-    return CopyFileW(src_path, dst_path, FALSE) ? 0 : 1;
+    int rvalue;
+
+    WCHAR *w_src = rb_w32_mbstr_to_wstr(CP_UTF8, src_path, -1, NULL);
+    WCHAR *w_dst = rb_w32_mbstr_to_wstr(CP_UTF8, dst_path, -1, NULL);
+    if (!w_src || !w_dst) {
+        rb_memerror();
+    }
+
+    rvalue = CopyFileW(w_src, w_dst, FALSE) ? 0 : 1;
+    free(w_src);
+    free(w_dst);
+    return rvalue;
 #else
     FILE *src, *dst;
     char buffer[1024];
@@ -409,7 +426,7 @@ rb_namespace_local_extension(VALUE namespace, VALUE path)
 #else
         copy_ext_file_error(message, sizeof(message), copy_error, src_path, ext_path);
 #endif
-        rb_raise(rb_eLoadError, "can't load the extension in namespace: %s", message);
+        rb_raise(rb_eLoadError, "can't prepare the extension file for namespaces (%s from %s): %s", ext_path, src_path, message);
     }
     // TODO: register the path to be clean-uped
     return rb_str_new_cstr(ext_path);

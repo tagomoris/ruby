@@ -389,6 +389,9 @@ dln_open(const char *file)
 # ifndef RTLD_GLOBAL
 #  define RTLD_GLOBAL 0
 # endif
+# ifndef RTLD_LOCAL
+#  define RTLD_LOCAL 0 /* TODO: 0??? some systems (including libc) use 0x00100 for RTLD_GLOBAL, 0x00000 for RTLD_LOCAL */
+# endif
 
     /* Load file */
     int mode = rb_namespace_available() ? RTLD_LAZY|RTLD_LOCAL : RTLD_LAZY|RTLD_GLOBAL;
