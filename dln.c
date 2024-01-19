@@ -552,15 +552,25 @@ dln_load_and_init(const char *file, const char *init_fct_name)
 void *
 dln_load(const char *file)
 {
+#if defined(_WIN32) || defined(USE_DLN_DLOPEN)
     char *init_fct_name;
     init_funcname(&init_fct_name, file);
     return dln_load_and_init(file, init_fct_name);
+#else
+    dln_notimplement();
+    return 0;
+#endif
 }
 
 void *
 dln_load_feature(const char *file, const char *fname)
 {
+#if defined(_WIN32) || defined(USE_DLN_DLOPEN)
     char *init_fct_name;
     init_feature_funcname(&init_fct_name, fname);
     return dln_load_and_init(file, init_fct_name);
+#else
+    dln_notimplement();
+    return 0;
+#endif
 }
