@@ -115,4 +115,13 @@ class TestNamespace < Test::Unit::TestCase
     assert_raise(RuntimeError, "Yay!") { @n.require(File.join(__dir__, 'namespace', 'raise')) }
     assert_nil Namespace.current
   end
+
+  def test_autoload_in_namespace
+    @n.require_relative('namespace/autoloading')
+    # autoloaded A is visible from global
+    assert_equal '1.1.0', @n::A::VERSION
+
+    # autoload trigger B::BAR is valid even from global
+    assert_equal 'bar_b1', @n::B::BAR
+  end
 end

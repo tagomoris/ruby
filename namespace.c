@@ -498,18 +498,6 @@ rb_namespace_require_relative(VALUE namespace, VALUE fname)
     return rb_ensure(rb_require_relative_entrypoint, fname, namespace_pop, (VALUE) th);
 }
 
-static VALUE
-rb_namespace_autoload(VALUE namespace, VALUE sym, VALUE file)
-{
-    return Qnil;
-}
-
-static VALUE
-rb_namespace_autoload_p(int argc, VALUE *argv, VALUE namespace)
-{
-    return Qnil;
-}
-
 void
 Init_Namespace(void)
 {
@@ -529,8 +517,6 @@ Init_Namespace(void)
     rb_define_method(rb_cNamespace, "load", rb_namespace_load, -1);
     rb_define_method(rb_cNamespace, "require", rb_namespace_require, 1);
     rb_define_method(rb_cNamespace, "require_relative", rb_namespace_require_relative, 1);
-    rb_define_method(rb_cNamespace, "autoload", rb_namespace_autoload, 2);
-    rb_define_method(rb_cNamespace, "autoload?", rb_namespace_autoload_p, -1);
 
     // TODO: rb_define_singleton_method(vm->load_path, "resolve_feature_path", rb_resolve_feature_path, 1);
 }
