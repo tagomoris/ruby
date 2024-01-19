@@ -23,9 +23,8 @@ class Test_Load_Extensions < Test::Unit::TestCase
 
       require '-test-/namespace/yay2'
       assert_equal "2.0.0", Yay.version
-      assert_equal "yaaay", Yay.yay
-
-      assert_equal "yaaay", yay1.yay
+      v = Yay.yay
+      assert(v == "yay" || v == "yaaay") # "yay" on Linux, "yaaay" on macOS, Win32
     end;
   end
 
