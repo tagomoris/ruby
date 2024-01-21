@@ -25,6 +25,7 @@
 #include "internal/error.h"
 #include "internal/eval.h"
 #include "internal/hash.h"
+#include "internal/namespace.h"
 #include "internal/object.h"
 #include "internal/re.h"
 #include "internal/symbol.h"
@@ -2405,6 +2406,9 @@ struct autoload_const {
     // The shared "autoload_data" if multiple constants are defined from the same feature.
     VALUE autoload_data_value;
 
+    // The namespace object when the autoload is called in a namespace (otherwise, Qnil)
+    VALUE namespace;
+
     // The module we are loading a constant into.
     VALUE module;
 
@@ -2559,6 +2563,7 @@ struct autoload_arguments {
     VALUE module;
     ID name;
     VALUE feature;
+    VALUE namespace;
 };
 
 static VALUE
@@ -2628,6 +2633,7 @@ autoload_synchronized(VALUE _arguments)
     {
         struct autoload_const *autoload_const;
         VALUE autoload_const_value = TypedData_Make_Struct(0, struct autoload_const, &autoload_const_type, autoload_const);
+        autoload_const->namespace = arguments->namespace;
         autoload_const->module = arguments->module;
         autoload_const->name = arguments->name;
         autoload_const->value = Qundef;
@@ -2644,6 +2650,12 @@ autoload_synchronized(VALUE _arguments)
 void
 rb_autoload_str(VALUE module, ID name, VALUE feature)
 {
+    rb_namespace_t *ns = GET_THREAD()->ns;
+    VALUE current_namespace = Qnil;
+    if (ns) {
+        current_namespace = ns->ns_object;
+    }
+
     if (!rb_is_const_id(name)) {
         rb_raise(rb_eNameError, "autoload must be constant name: %"PRIsVALUE"", QUOTE_ID(name));
     }
@@ -2657,6 +2669,7 @@ rb_autoload_str(VALUE module, ID name, VALUE feature)
         .module = module,
         .name = name,
         .feature = feature,
+        .namespace = current_namespace,
     };
 
     VALUE result = rb_mutex_synchronize(autoload_mutex, autoload_synchronized, (VALUE)&arguments);
@@ -2920,6 +2933,8 @@ autoload_apply_constants(VALUE _arguments)
 static VALUE
 autoload_feature_require(VALUE _arguments)
 {
+    VALUE receiver = rb_vm_top_self();
+
     struct autoload_load_arguments *arguments = (struct autoload_load_arguments*)_arguments;
 
     struct autoload_const *autoload_const = arguments->autoload_const;
@@ -2927,7 +2942,11 @@ autoload_feature_require(VALUE _arguments)
     // We save this for later use in autoload_apply_constants:
     arguments->autoload_data = rb_check_typeddata(autoload_const->autoload_data_value, &autoload_data_type);
 
-    VALUE result = rb_funcall(rb_vm_top_self(), rb_intern("require"), 1, arguments->autoload_data->feature);
+    if (RTEST(autoload_const->namespace)) {
+        receiver = autoload_const->namespace;
+    }
+
+    VALUE result = rb_funcall(receiver, rb_intern("require"), 1, arguments->autoload_data->feature);
 
     if (RTEST(result)) {
         return rb_mutex_synchronize(autoload_mutex, autoload_apply_constants, _arguments);
