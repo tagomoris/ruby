@@ -182,6 +182,7 @@ ripper_token2eventid(enum yytokentype tok)
         [keyword_redo]		= O(kw),
         [keyword_rescue]	= O(kw),
         [modifier_rescue]	= O(kw),
+        [keyword_reopen]	= O(kw),
         [keyword_retry] 	= O(kw),
         [keyword_return]	= O(kw),
         [keyword_self]		= O(kw),
