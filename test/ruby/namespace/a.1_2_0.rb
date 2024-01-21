@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class A
+class NS_A
   VERSION = "1.2.0"
 
   def yay
@@ -8,7 +8,7 @@ class A
   end
 end
 
-module B
+module NS_B
   VERSION = "1.2.0"
 
   def self.yay
