@@ -1332,6 +1332,12 @@ class TestRipper::ParserEvents < Test::Unit::TestCase
     assert_equal true, thru_sclass
   end
 
+  def test_reopen_cm
+    thru_reopen_cm = false
+    parse('reopen_cm Yay; end', :on_reopen_cm) {thru_reopen_cm = true}
+    assert_equal true, thru_reopen_cm
+  end
+
   def test_string_add
     thru_string_add = false
     parse('"aa"', :on_string_add) {thru_string_add = true}

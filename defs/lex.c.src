@@ -39,6 +39,7 @@ redo, {keyword_redo, keyword_redo}, EXPR_END
 rescue, {keyword_rescue, modifier_rescue}, EXPR_MID
 retry, {keyword_retry, keyword_retry}, EXPR_END
 return, {keyword_return, keyword_return}, EXPR_MID
+reopen_cm, {keyword_reopen, keyword_reopen}, EXPR_VALUE
 self, {keyword_self, keyword_self}, EXPR_END
 super, {keyword_super, keyword_super}, EXPR_ARG
 then, {keyword_then, keyword_then}, EXPR_BEG
