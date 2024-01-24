@@ -794,6 +794,7 @@ static inline enum ruby_tag_type
 load_wrapping(rb_execution_context_t *ec, VALUE fname, VALUE load_wrapper)
 {
     enum ruby_tag_type state;
+    rb_namespace_t *ns;
     rb_thread_t *th = rb_ec_thread_ptr(ec);
     volatile VALUE wrapper = th->top_wrapper;
     volatile VALUE self = th->top_self;
@@ -804,7 +805,15 @@ load_wrapping(rb_execution_context_t *ec, VALUE fname, VALUE load_wrapper)
     ec->errinfo = Qnil; /* ensure */
 
     /* load in module as toplevel */
-    th->top_self = rb_obj_clone(rb_vm_top_self());
+    if (IS_NAMESPACE(load_wrapper)) {
+        ns = rb_get_namespace_t(load_wrapper);
+        if (!ns->top_self) {
+            ns->top_self = rb_obj_clone(rb_vm_top_self());
+        }
+        th->top_self = ns->top_self;
+    } else {
+        th->top_self = rb_obj_clone(rb_vm_top_self());
+    }
     th->top_wrapper = load_wrapper;
     rb_extend_object(th->top_self, th->top_wrapper);
 

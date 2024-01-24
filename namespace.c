@@ -52,6 +52,7 @@ rb_namespace_available()
 static void
 namespace_entry_initialize(rb_namespace_t *entry)
 {
+    entry->top_self = 0;
     entry->load_path = rb_ary_new();
     entry->expanded_load_path = rb_ary_hidden_new(0);
     entry->load_path_snapshot = rb_ary_hidden_new(0);
@@ -75,6 +76,7 @@ namespace_entry_initialize(rb_namespace_t *entry)
 
 void rb_namespace_gc_update_references(rb_namespace_t *ns)
 {
+    ns->top_self = rb_gc_location(ns->top_self);
     ns->load_path = rb_gc_location(ns->load_path);
     ns->expanded_load_path = rb_gc_location(ns->expanded_load_path);
     ns->load_path_snapshot = rb_gc_location(ns->load_path_snapshot);
@@ -93,6 +95,9 @@ void
 rb_namespace_entry_mark(void *ptr)
 {
     const rb_namespace_t *entry = (rb_namespace_t *) ptr;
+    if (entry->top_self) {
+        rb_gc_mark(entry->top_self);
+    }
     rb_gc_mark(entry->load_path);
     rb_gc_mark(entry->expanded_load_path);
     rb_gc_mark(entry->load_path_snapshot);

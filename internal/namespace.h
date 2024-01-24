@@ -16,7 +16,7 @@ struct rb_namespace_struct {
     VALUE ns_object;
     long ns_id;
 
-    /* TODO: Need to contain wrapper? Or the Namespace object can behave as it? */
+    VALUE top_self;
 
     /* for Namespace */
     VALUE load_path;
@@ -32,6 +32,8 @@ struct rb_namespace_struct {
     VALUE ruby_dln_libmap;
 };
 typedef struct rb_namespace_struct rb_namespace_t;
+
+#define IS_NAMESPACE(obj) (CLASS_OF(obj) == rb_cNamespace)
 
 #define CURRENT_NS_x(th, attr) (th->ns ? th->ns->attr : th->vm->attr)
 #define SET_NS_x(th, attr, value) do {    \

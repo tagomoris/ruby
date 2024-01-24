@@ -134,4 +134,18 @@ class TestNamespace < Test::Unit::TestCase
 
     assert_raise(NameError) { NS_A }
   end
+
+  def test_continuous_top_level_method_in_a_namespace
+    @n.require_relative('namespace/define_toplevel')
+    @n.require_relative('namespace/call_toplevel')
+    assert_raise(NameError) { foo }
+  end
+
+  def test_top_level_methods_in_namespace
+    # TODO: top-level per namespace, can be referred from any Objects
+    pend
+    @n.require_relative('namespace/top_level')
+    assert_equal "yay!", @n::Foo.foo
+    assert_raise(NameError) { yaaay }
+  end
 end
