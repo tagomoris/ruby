@@ -2740,8 +2740,12 @@ VALUE
 rb_iseq_eval(const rb_iseq_t *iseq)
 {
     rb_execution_context_t *ec = GET_EC();
+    const rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     VALUE val;
     vm_set_top_stack(ec, iseq);
+    if (ns) {
+        rb_vm_using_module(ns->refiner);
+    }
     val = vm_exec(ec);
     return val;
 }
@@ -2750,9 +2754,12 @@ VALUE
 rb_iseq_eval_main(const rb_iseq_t *iseq)
 {
     rb_execution_context_t *ec = GET_EC();
+    const rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     VALUE val;
-
     vm_set_main_stack(ec, iseq);
+    if (ns) {
+        rb_vm_using_module(ns->refiner);
+    }
     val = vm_exec(ec);
     return val;
 }

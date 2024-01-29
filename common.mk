@@ -8780,6 +8780,7 @@ load.$(OBJEXT): $(top_srcdir)/internal/compilers.h
 load.$(OBJEXT): $(top_srcdir)/internal/complex.h
 load.$(OBJEXT): $(top_srcdir)/internal/dir.h
 load.$(OBJEXT): $(top_srcdir)/internal/error.h
+load.$(OBJEXT): $(top_srcdir)/internal/eval.h
 load.$(OBJEXT): $(top_srcdir)/internal/file.h
 load.$(OBJEXT): $(top_srcdir)/internal/fixnum.h
 load.$(OBJEXT): $(top_srcdir)/internal/gc.h

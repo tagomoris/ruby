@@ -17,6 +17,7 @@
 #include "internal.h"
 #include "internal/class.h"
 #include "internal/compar.h"
+#include "internal/eval.h"
 #include "internal/hash.h"
 #include "internal/numeric.h"
 #include "internal/proc.h"
@@ -971,6 +972,18 @@ vm_cref_push(const rb_execution_context_t *ec, VALUE klass, const VALUE *ep, int
     }
 
     return vm_cref_new(klass, METHOD_VISI_PUBLIC, FALSE, prev_cref, pushed_by_eval, singleton);
+}
+
+static rb_cref_t *
+vm_cref_push_with_refinement(const rb_execution_context_t *ec, VALUE klass, VALUE refiner)
+{
+    struct rb_refinements_refine_pair setup;
+    rb_cref_t *cref;
+
+    rb_refinement_setup(&setup, refiner, klass);
+    cref = vm_cref_push(ec, setup.refinement, NULL, FALSE, FALSE);
+    CREF_REFINEMENTS_SET(cref, setup.refinements);
+    return cref;
 }
 
 static inline VALUE
@@ -5333,6 +5346,12 @@ vm_const_get_under(ID id, rb_num_t flags, VALUE cbase)
 }
 
 static VALUE
+vm_const_search_from(ID id, rb_num_t flags, VALUE cbase)
+{
+    return rb_const_get_from(cbase, id);
+}
+
+static VALUE
 vm_check_if_class(ID id, rb_num_t flags, VALUE super, VALUE klass)
 {
     if (!RB_TYPE_P(klass, T_CLASS)) {
@@ -5450,12 +5469,19 @@ vm_define_module(ID id, rb_num_t flags, VALUE cbase)
 }
 
 static VALUE
-vm_reopen_class_or_module(ID id, rb_num_t flags, VALUE cbase)
+vm_reopen_class_or_module(ID id, rb_num_t flags, VALUE cbase, VALUE namespace, int *global)
 {
     VALUE target;
 
     vm_check_if_namespace(cbase);
-    if ((target = vm_const_get_under(id, flags, cbase)) != 0) {
+
+    target = vm_const_get_under(id, flags, cbase);
+    if (target == 0 && !NIL_P(namespace)) {
+        target = vm_const_search_from(id, flags, rb_cObject);
+        *global = 1;
+    }
+
+    if (target != 0) {
         /*
          *`reopen_cm` must have no superclass, so `flags` signs there are no superclass.
          * `vm_check_if_class` should ignore the superclass value (Qnil).
@@ -5471,6 +5497,12 @@ vm_reopen_class_or_module(ID id, rb_num_t flags, VALUE cbase)
                  "%"PRIsVALUE" is not defined yet",
                  ID2SYM(id));
     }
+}
+
+static void
+vm_using_module(VALUE module)
+{
+    rb_vm_using_module(module);
 }
 
 static VALUE
@@ -5493,10 +5525,6 @@ vm_find_or_create_class_by_id(ID id,
       case VM_DEFINECLASS_TYPE_MODULE:
         /* classdef returns class scope value */
         return vm_define_module(id, flags, cbase);
-
-      case VM_DEFINECLASS_TYPE_REOPEN:
-        /* classdef returns class scope value */
-        return vm_reopen_class_or_module(id, flags, cbase);
 
       default:
         rb_bug("unknown defineclass type: %d", (int)type);

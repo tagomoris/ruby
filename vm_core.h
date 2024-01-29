@@ -1343,6 +1343,7 @@ enum vm_frame_env_flags {
     VM_FRAME_FLAG_MODIFIED_BLOCK_PARAM = 0x0200,
     VM_FRAME_FLAG_CFRAME_KW = 0x0400,
     VM_FRAME_FLAG_PASSED    = 0x0800,
+    VM_FRAME_FLAG_HOOKED    = 0x1000,
 
     /* env flag */
     VM_ENV_FLAG_LOCAL       = 0x0002,
@@ -1402,6 +1403,12 @@ static inline int
 VM_FRAME_CFRAME_KW_P(const rb_control_frame_t *cfp)
 {
     return VM_ENV_FLAGS(cfp->ep, VM_FRAME_FLAG_CFRAME_KW) != 0;
+}
+
+static inline int
+VM_FRAME_HOOKED_P(const rb_control_frame_t *cfp)
+{
+    return VM_ENV_FLAGS(cfp->ep, VM_FRAME_FLAG_HOOKED) != 0;
 }
 
 static inline int

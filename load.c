@@ -7,6 +7,7 @@
 #include "internal.h"
 #include "internal/dir.h"
 #include "internal/error.h"
+#include "internal/eval.h"
 #include "internal/file.h"
 #include "internal/hash.h"
 #include "internal/load.h"
@@ -19,6 +20,7 @@
 #include "darray.h"
 #include "ruby/encoding.h"
 #include "ruby/util.h"
+#include "vm_core.h"
 
 static VALUE ruby_dln_libmap;
 

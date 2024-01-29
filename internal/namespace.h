@@ -17,6 +17,7 @@ struct rb_namespace_struct {
     long ns_id;
 
     VALUE top_self;
+    VALUE refiner;
 
     /* for Namespace */
     VALUE load_path;

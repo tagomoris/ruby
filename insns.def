@@ -780,6 +780,39 @@ defineclass
 }
 
 DEFINE_INSN
+reopenclass
+(ID id, ISEQ class_iseq, rb_num_t flags)
+(VALUE cbase)
+(VALUE val)
+{
+    rb_cref_t *cref;
+    VALUE self;
+    int global = 0;
+    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
+    VALUE klass = vm_reopen_class_or_module(id, flags, cbase, ns ? ns->ns_object : Qnil, &global);
+
+    rb_iseq_check(class_iseq);
+
+    if (global && ns) {
+        cref = vm_cref_push_with_refinement(ec, klass, ns->refiner);
+        self = cref->klass_or_self;
+    } else {
+        cref = vm_cref_push(ec, klass, NULL, FALSE, FALSE);
+        self = klass;
+    }
+
+    /* enter scope */
+    vm_push_frame(ec, class_iseq, VM_FRAME_MAGIC_CLASS | VM_FRAME_FLAG_HOOKED | VM_ENV_FLAG_LOCAL, self,
+                  GET_BLOCK_HANDLER(),
+                  (VALUE)cref,
+                  ISEQ_BODY(class_iseq)->iseq_encoded, GET_SP(),
+                  ISEQ_BODY(class_iseq)->local_table_size,
+                  ISEQ_BODY(class_iseq)->stack_max);
+    RESTORE_REGS();
+    NEXT_INSN();
+}
+
+DEFINE_INSN
 definemethod
 (ID id, ISEQ iseq)
 ()
@@ -976,6 +1009,9 @@ leave
 // attr bool leaf = false; /* has rb_threadptr_execute_interrupts() */
 // attr bool handles_sp = true;
 {
+    rb_namespace_t *ns;
+    int finished;
+    int using = 0;
     if (OPT_CHECKED_RUN) {
         const VALUE *const bp = vm_base_ptr(GET_CFP());
         if (GET_SP() != bp) {
@@ -983,7 +1019,19 @@ leave
         }
     }
 
-    if (vm_pop_frame(ec, GET_CFP(), GET_EP())) {
+    if ((ns = rb_ec_thread_ptr(ec)->ns) != 0) {
+        if (VM_FRAME_HOOKED_P(ec->cfp)) {
+            /* TODO: check that the leaving frame is of reopenclass */
+            using = 1;
+        }
+    }
+
+    finished = vm_pop_frame(ec, GET_CFP(), GET_EP());
+    if (using) {
+        vm_using_module(ns->refiner);
+    }
+
+    if (finished) {
 #if OPT_CALL_THREADED_CODE
         rb_ec_thread_ptr(ec)->retval = val;
         return 0;

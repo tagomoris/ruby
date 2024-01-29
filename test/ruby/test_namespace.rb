@@ -193,4 +193,45 @@ class TestNamespace < Test::Unit::TestCase
       assert_equal "yay", ns2::Bar.caller(proc_v) # should refer the global Target, not Foo in ns2
     end;
   end
+
+  def test_methods_added_in_namespace_are_invisible_globally
+    @n.require_relative('namespace/string_ext')
+    assert_equal "yay", @n::Bar.yay
+
+    assert_raise(NoMethodError){ String.new.yay }
+  end
+
+  def test_continuous_method_definitions_in_a_namespace
+    @n.require_relative('namespace/string_ext')
+    assert_equal "yay", @n::Bar.yay
+
+    @n.require_relative('namespace/string_ext_caller')
+    assert_equal "yay", @n::Foo.yay
+
+    @n.require_relative('namespace/string_ext_calling')
+  end
+
+  def test_methods_added_in_namespace_later_than_caller_code
+    @n.require_relative('namespace/string_ext_caller')
+
+    @n.require_relative('namespace/string_ext')
+    assert_equal "yay", @n::Bar.yay
+
+    pend
+    assert_equal "yay", @n::Foo.yay #TODO: NoMethodError, to be fixed
+  end
+
+  def test_method_added_in_namespace_are_available_on_eval
+    @n.require_relative('namespace/string_ext')
+
+    @n.require_relative('namespace/string_ext_eval_caller')
+    assert_equal "yay", @n::Baz.yay
+  end
+
+  def test_method_added_in_namespace_are_available_on_eval_with_binding
+    @n.require_relative('namespace/string_ext')
+
+    @n.require_relative('namespace/string_ext_eval_caller')
+    assert_equal "yay, yay!", @n::Baz.yay_with_binding
+  end
 end

@@ -1338,6 +1338,12 @@ rb_using_module(const rb_cref_t *cref, VALUE module)
     rb_clear_all_refinement_method_cache();
 }
 
+void
+rb_vm_using_module(VALUE module)
+{
+    rb_using_module(rb_vm_cref_replace_with_duplicated_cref(), module);
+}
+
 /*
  *  call-seq:
  *     target    -> class_or_module
@@ -1403,33 +1409,14 @@ add_activated_refinement(VALUE activated_refinements,
     rb_hash_aset(activated_refinements, klass, iclass);
 }
 
-/*
- *  call-seq:
- *     refine(mod) { block }   -> module
- *
- *  Refine <i>mod</i> in the receiver.
- *
- *  Returns a module, where refined methods are defined.
- */
-
-static VALUE
-rb_mod_refine(VALUE module, VALUE klass)
+void
+rb_refinement_setup(struct rb_refinements_refine_pair *pair, VALUE module, VALUE klass)
 {
     VALUE refinement;
     ID id_refinements, id_activated_refinements,
        id_refined_class, id_defined_at;
     VALUE refinements, activated_refinements;
-    rb_thread_t *th = GET_THREAD();
-    VALUE block_handler = rb_vm_frame_block_handler(th->ec->cfp);
 
-    if (block_handler == VM_BLOCK_HANDLER_NONE) {
-        rb_raise(rb_eArgError, "no block given");
-    }
-    if (vm_block_handler_type(block_handler) != block_handler_type_iseq) {
-        rb_raise(rb_eArgError, "can't pass a Proc as a block to Module#refine");
-    }
-
-    ensure_class_or_module(klass);
     CONST_ID(id_refinements, "__refinements__");
     refinements = rb_attr_get(module, id_refinements);
     if (NIL_P(refinements)) {
@@ -1457,8 +1444,40 @@ rb_mod_refine(VALUE module, VALUE klass)
         rb_hash_aset(refinements, klass, refinement);
         add_activated_refinement(activated_refinements, klass, refinement);
     }
-    rb_yield_refine_block(refinement, activated_refinements);
-    return refinement;
+
+    pair->refinement = refinement;
+    pair->refinements = activated_refinements;
+}
+
+/*
+ *  call-seq:
+ *     refine(mod) { block }   -> module
+ *
+ *  Refine <i>mod</i> in the receiver.
+ *
+ *  Returns a module, where refined methods are defined.
+ */
+
+static VALUE
+rb_mod_refine(VALUE module, VALUE klass)
+{
+    rb_thread_t *th = GET_THREAD();
+    VALUE block_handler = rb_vm_frame_block_handler(th->ec->cfp);
+    struct rb_refinements_refine_pair setup;
+
+    if (block_handler == VM_BLOCK_HANDLER_NONE) {
+        rb_raise(rb_eArgError, "no block given");
+    }
+    if (vm_block_handler_type(block_handler) != block_handler_type_iseq) {
+        rb_raise(rb_eArgError, "can't pass a Proc as a block to Module#refine");
+    }
+
+    ensure_class_or_module(klass);
+
+    rb_refinement_setup(&setup, module, klass);
+
+    rb_yield_refine_block(setup.refinement, setup.refinements);
+    return setup.refinement;
 }
 
 static void

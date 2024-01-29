@@ -10561,7 +10561,7 @@ iseq_compile_each0(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE *const no
             compile_cpath(ret, iseq, RNODE_REOPEN(node)->nd_cpath);
 
         ADD_INSN (ret, node, putnil); /* dummy */
-        ADD_INSN3(ret, node, defineclass, ID2SYM(get_node_colon_nd_mid(RNODE_REOPEN(node)->nd_cpath)), target_iseq, INT2FIX(flags));
+        ADD_INSN3(ret, node, reopenclass, ID2SYM(get_node_colon_nd_mid(RNODE_REOPEN(node)->nd_cpath)), target_iseq, INT2FIX(flags));
         RB_OBJ_WRITTEN(iseq, Qundef, (VALUE)target_iseq);
 
         if (popped) {
