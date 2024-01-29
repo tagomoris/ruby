@@ -3,6 +3,8 @@
 require 'test/unit'
 
 class TestNamespace < Test::Unit::TestCase
+  ENV_ENABLE_NAMESPACE = {'RUBY_NAMESPACE' => '1'}
+
   def setup
     Namespace.enabled = true
     @n = Namespace.new
@@ -142,10 +144,53 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_top_level_methods_in_namespace
-    # TODO: top-level per namespace, can be referred from any Objects
+    # TODO: top-level per namespace, can be referred from any Objects in the namespace
     pend
     @n.require_relative('namespace/top_level')
     assert_equal "yay!", @n::Foo.foo
     assert_raise(NameError) { yaaay }
+  end
+
+  def test_proc_defined_in_namespace_refers_module_in_namespace
+    # require_relative dosn't work well in assert_separately even with __FILE__ and __LINE__
+    assert_separately([ENV_ENABLE_NAMESPACE], __FILE__, __LINE__, "here = '#{__dir__}'; #{<<~"begin;"}\n#{<<~'end;'}")
+    begin;
+      ns1 = Namespace.new
+      ns1.require(File.join("#{here}", 'namespace/proc_callee'))
+      proc_v = ns1::Foo.callee
+      assert_raise(NameError) { Target }
+      assert ns1::Target
+      assert_equal "fooooo", proc_v.call # refers Target in the namespace ns1
+      ns1.require(File.join("#{here}", 'namespace/proc_caller'))
+      assert_equal "fooooo", ns1::Bar.caller(proc_v)
+
+      ns2 = Namespace.new
+      ns2.require(File.join("#{here}", 'namespace/proc_caller'))
+      assert_raise(NameError) { ns2::Target }
+      assert_equal "fooooo", ns2::Bar.caller(proc_v) # refers Target in the namespace ns1
+    end;
+  end
+
+  def test_proc_defined_globally_refers_global_module
+    # require_relative dosn't work well in assert_separately even with __FILE__ and __LINE__
+    assert_separately([ENV_ENABLE_NAMESPACE], __FILE__, __LINE__, "here = '#{__dir__}'; #{<<~"begin;"}\n#{<<~'end;'}", ignore_stderr: true)
+    begin;
+      require(File.join("#{here}", 'namespace/proc_callee'))
+      def Target.foo
+        "yay"
+      end
+      proc_v = Foo.callee
+      assert Target
+      assert_equal "yay", proc_v.call # refers global Foo
+      ns1 = Namespace.new
+      ns1.require(File.join("#{here}", 'namespace/proc_caller'))
+      assert_equal "yay", ns1::Bar.caller(proc_v)
+
+      ns2 = Namespace.new
+      ns2.require(File.join("#{here}", 'namespace/proc_callee'))
+      ns2.require(File.join("#{here}", 'namespace/proc_caller'))
+      assert_equal "fooooo", ns2::Foo.callee.call
+      assert_equal "yay", ns2::Bar.caller(proc_v) # should refer the global Target, not Foo in ns2
+    end;
   end
 end
