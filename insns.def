@@ -818,7 +818,40 @@ definemethod
 ()
 ()
 {
+    rb_cref_t *cref;
+    VALUE klass;
+    int is_toplevel_in_ns = FALSE;
+    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
+
+    rb_iseq_check(iseq);
+
+    if (ns) {
+        cref = vm_ec_cref(ec);
+        klass = CREF_CLASS_FOR_DEFINITION(cref);
+        if (klass == ns->ns_object) {
+            is_toplevel_in_ns = TRUE;
+            cref = vm_cref_push_with_refinement(ec, rb_cObject, ns->refiner);
+            klass = cref->klass_or_self;
+            rb_warning("pushing a frame for namespace refinement");
+            /* TODO: vm_call_cfunc_with_frame ? */
+            vm_push_frame(ec, iseq, VM_FRAME_MAGIC_CLASS | VM_FRAME_FLAG_HOOKED | VM_ENV_FLAG_LOCAL, klass,
+                          GET_BLOCK_HANDLER(),
+                          (VALUE)cref,
+                          ISEQ_BODY(iseq)->iseq_encoded, GET_SP(),
+                          ISEQ_BODY(iseq)->local_table_size,
+                          ISEQ_BODY(iseq)->stack_max);
+        }
+    }
+
     vm_define_method(ec, Qnil, id, (VALUE)iseq, FALSE);
+
+    if (is_toplevel_in_ns) {
+        rb_warning("popping a frame for namespace refinement");
+        const VALUE *const bp = vm_base_ptr(ec->cfp);
+        vm_pop_frame(ec, ec->cfp, bp);
+
+        vm_using_module(ns->refiner);
+    }
 }
 
 DEFINE_INSN

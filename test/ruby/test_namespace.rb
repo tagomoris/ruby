@@ -144,11 +144,11 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_top_level_methods_in_namespace
-    # TODO: top-level per namespace, can be referred from any Objects in the namespace
-    pend
     @n.require_relative('namespace/top_level')
     assert_equal "yay!", @n::Foo.foo
     assert_raise(NameError) { yaaay }
+    assert_equal "foo", @n::Bar.bar
+    assert_raise_with_message(RuntimeError, "boooo") { @n::Baz.baz }
   end
 
   def test_proc_defined_in_namespace_refers_module_in_namespace
