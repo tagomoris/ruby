@@ -19,6 +19,7 @@
 extern ID ruby_static_id_signo;
 extern ID ruby_static_id_status;
 VALUE rb_refinement_module_get_refined_class(VALUE module);
+VALUE rb_refinement_if_exist(VALUE refiner, VALUE refined);
 struct rb_refinements_refine_pair {
     VALUE refinement;
     VALUE refinements;

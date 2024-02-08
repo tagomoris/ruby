@@ -3087,8 +3087,15 @@ rb_const_get_0(VALUE klass, ID id, int exclude, int recurse, int visibility)
 static VALUE
 rb_const_search_from(VALUE klass, ID id, int exclude, int recurse, int visibility)
 {
-    VALUE value, current;
+    VALUE value, current, refinement;
     bool first_iteration = true;
+    const rb_execution_context_t *ec = GET_EC();
+    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
+    const rb_callable_method_entry_t *cme = rb_vm_frame_method_entry(ec->cfp);
+
+    if (cme && cme->def && cme->def->ns) {
+        ns = cme->def->ns;
+    }
 
     for (current = klass;
             RTEST(current);
@@ -3108,6 +3115,13 @@ rb_const_search_from(VALUE klass, ID id, int exclude, int recurse, int visibilit
         // iclass in the chain.
         tmp = current;
         if (BUILTIN_TYPE(tmp) == T_ICLASS) tmp = RBASIC(tmp)->klass;
+
+        if (ns) {
+            refinement = rb_refinement_if_exist(ns->refiner, tmp);
+            if (!NIL_P(refinement)) {
+                tmp = refinement;
+            }
+        }
 
         // Do the lookup. Loop in case of autoload.
         while ((ce = rb_const_lookup(tmp, id))) {
@@ -3614,9 +3628,36 @@ const_set(VALUE klass, ID id, VALUE val)
     }
 }
 
+#define IS_REFINEMENT_P(klass) (RB_TYPE_P(klass, T_MODULE) && FL_TEST(klass, RMODULE_IS_REFINEMENT))
+
 void
 rb_const_set(VALUE klass, ID id, VALUE val)
 {
+    const rb_callable_method_entry_t *cme;
+    VALUE refinement;
+    struct rb_refinements_refine_pair setup;
+    rb_namespace_t *ns = GET_THREAD()->ns;
+
+    if (!ns) {
+        cme = rb_vm_frame_method_entry(GET_EC()->cfp);
+        if (cme && cme->def && cme->def->ns) {
+            ns = cme->def->ns;
+        }
+    }
+    if (ns && klass != ns->ns_object) {
+        if (rb_klass_defined_under_namespace_p(klass, ns->ns_object)) {
+            // This klass was defined in the namespace, so can be changed directly
+        } else if (IS_REFINEMENT_P(klass)) {
+            // This klass is already refinement, should already be refined by ns->refiner
+        } else if (!NIL_P(refinement = rb_refinement_if_exist(ns->refiner, klass))) {
+            // The klass is already refined in this namespace
+            klass = refinement;
+        } else {
+            // The klass is defined out of namespace, and not refined yet in this namespace
+            rb_refinement_setup(&setup, ns->refiner, klass);
+            klass = setup.refinement;
+        }
+    }
     const_set(klass, id, val);
     const_added(klass, id);
 }

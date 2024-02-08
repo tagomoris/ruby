@@ -1035,7 +1035,8 @@ static inline VALUE
 vm_get_ev_const(rb_execution_context_t *ec, VALUE orig_klass, ID id, bool allow_nil, int is_defined)
 {
     void rb_const_warn_if_deprecated(const rb_const_entry_t *ce, VALUE klass, ID id);
-    VALUE val;
+    VALUE val, refinement;
+    const rb_callable_method_entry_t *cme = rb_vm_frame_method_entry(ec->cfp);
 
     if (NIL_P(orig_klass) && allow_nil) {
         /* in current lexical scope */
@@ -1055,6 +1056,13 @@ vm_get_ev_const(rb_execution_context_t *ec, VALUE orig_klass, ID id, bool allow_
                 klass = CREF_CLASS(cref);
             }
             cref = CREF_NEXT(cref);
+
+            if (cme && cme->def && cme->def->ns) {
+                refinement = rb_refinement_if_exist(cme->def->ns->refiner, klass);
+                if (refinement && !NIL_P(refinement)) {
+                    klass = refinement;
+                }
+            }
 
             if (!NIL_P(klass)) {
                 VALUE av, am = 0;

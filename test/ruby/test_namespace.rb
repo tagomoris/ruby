@@ -217,8 +217,8 @@ class TestNamespace < Test::Unit::TestCase
     @n.require_relative('namespace/string_ext')
     assert_equal "yay", @n::Bar.yay
 
-    pend
-    assert_equal "yay", @n::Foo.yay #TODO: NoMethodError, to be fixed
+    pend # TODO: The file (ISeq) required previously cannot be refined correctly by the following file (and its refinement)
+    assert_equal "yay", @n::Foo.yay #TODO: NoMethodError
   end
 
   def test_method_added_in_namespace_are_available_on_eval
@@ -233,5 +233,56 @@ class TestNamespace < Test::Unit::TestCase
 
     @n.require_relative('namespace/string_ext_eval_caller')
     assert_equal "yay, yay!", @n::Baz.yay_with_binding
+  end
+
+  def suppress_warning
+    v = $VERBOSE
+    $VERBOSE = nil
+    yield
+  ensure
+    $VERBOSE = v
+  end
+
+  def test_add_constants_in_namespace
+    assert_raise(NameError) { String.const_get(:CONST1) }
+    assert_raise(NameError) { String::CONST2 }
+    assert_raise(NameError) { Integer.const_get(:CONST1) }
+    assert_raise(NameError) { Integer::CONST2 }
+
+    suppress_warning do
+      @n.require_relative('namespace/consts')
+    end
+    assert_raise(NameError) { String::CONST1 }
+    assert_raise(NameError) { String::CONST2 }
+    assert_raise(NameError) { Integer::CONST1 }
+
+    assert_not_nil @n::ForConsts.refer_all
+
+    assert_equal 112, @n::ForConsts.refer1
+    assert_equal 112, @n::ForConsts::CONST1
+    assert_equal 222, @n::ForConsts.refer2
+    assert_equal 222, @n::ForConsts::CONST2
+    assert_equal 333, @n::ForConsts.refer3
+    assert_equal 333, @n::ForConsts::CONST3
+
+    suppress_warning do
+      @n::ForConsts.const_set(:CONST3, 334)
+    end
+    assert_equal 334, @n::ForConsts::CONST3
+
+    assert_equal 10, @n::ForConsts.refer_top_const
+
+    # use Proxy object to use usual methods instead of singleton methods
+    proxy = @n::ForConsts::Proxy.new
+    assert_equal 112, proxy.call_str_refer1
+    assert_equal 223, proxy.call_str_refer2
+
+    assert_equal 1, proxy.refer_int_const1
+
+    assert_raise(NameError) { String::CONST1 }
+    assert_raise(NameError) { String::CONST2 }
+    assert_raise(NameError) { Integer::CONST1 }
+
+    # TODO: const_set/const_get
   end
 end

@@ -350,12 +350,19 @@ rb_check_inheritable(VALUE super)
 VALUE
 rb_class_new(VALUE super)
 {
+    ID id_namespace;
+    rb_namespace_t *ns = GET_THREAD()->ns;
+
     Check_Type(super, T_CLASS);
     rb_check_inheritable(super);
     VALUE klass = rb_class_boot(super);
 
     if (super != rb_cObject && super != rb_cBasicObject) {
         RCLASS_EXT(klass)->max_iv_count = RCLASS_EXT(super)->max_iv_count;
+    }
+    if (ns) {
+        CONST_ID(id_namespace, "__namespace__");
+        rb_ivar_set(klass, id_namespace, ns->ns_object);
     }
 
     return klass;
@@ -1067,7 +1074,17 @@ module_new(VALUE klass)
 VALUE
 rb_module_new(void)
 {
-    return module_new(rb_cModule);
+    VALUE module;
+    ID id_namespace;
+    rb_namespace_t *ns = GET_THREAD()->ns;
+
+    module = module_new(rb_cModule);
+    if (ns) {
+        CONST_ID(id_namespace, "__namespace__");
+        rb_ivar_set(module, id_namespace, ns->ns_object);
+    }
+
+    return module;
 }
 
 VALUE

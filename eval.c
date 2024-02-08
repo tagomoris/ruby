@@ -1409,6 +1409,19 @@ add_activated_refinement(VALUE activated_refinements,
     rb_hash_aset(activated_refinements, klass, iclass);
 }
 
+VALUE
+rb_refinement_if_exist(VALUE refiner, VALUE refined)
+{
+    VALUE refinements;
+    ID id_refinements;
+    CONST_ID(id_refinements, "__refinements__");
+    refinements = rb_attr_get(refiner, id_refinements);
+    if (NIL_P(refinements)) {
+        return Qnil;
+    }
+    return rb_hash_lookup(refinements, refined);
+}
+
 void
 rb_refinement_setup(struct rb_refinements_refine_pair *pair, VALUE module, VALUE klass)
 {
@@ -1461,6 +1474,7 @@ rb_refinement_setup(struct rb_refinements_refine_pair *pair, VALUE module, VALUE
 static VALUE
 rb_mod_refine(VALUE module, VALUE klass)
 {
+    /* module is the receiver of #refine, klass is a module to be refined (`mod` above) */
     rb_thread_t *th = GET_THREAD();
     VALUE block_handler = rb_vm_frame_block_handler(th->ec->cfp);
     struct rb_refinements_refine_pair setup;

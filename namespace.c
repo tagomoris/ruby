@@ -49,6 +49,28 @@ rb_namespace_available()
     return 0;
 }
 
+VALUE
+rb_namespace_of(VALUE klass)
+{
+    ID id_namespace;
+    CONST_ID(id_namespace, "__namespace__");
+    return rb_attr_get(klass, id_namespace);
+}
+
+VALUE
+rb_klass_defined_under_namespace_p(VALUE klass, VALUE namespace)
+{
+    ID id_namespace;
+    VALUE klass_namespace;
+
+    CONST_ID(id_namespace, "__namespace__");
+    klass_namespace = rb_attr_get(klass, id_namespace);
+    if (klass_namespace) {
+        return klass_namespace == namespace;
+    }
+    return Qfalse;
+}
+
 static void
 namespace_entry_initialize(rb_namespace_t *entry)
 {

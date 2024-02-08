@@ -291,8 +291,12 @@ setconstant
  * method calls. */
 // attr bool leaf = false; /* has StringValue() */
 {
+    VALUE self = GET_SELF();
     vm_check_if_namespace(cbase);
-    vm_ensure_not_refinement_module(GET_SELF());
+    // In reopen_cm in namespaces, self and cbase are same Refinement and constants can be added
+    if (self != cbase) {
+        vm_ensure_not_refinement_module(GET_SELF());
+    }
     rb_const_set(cbase, id, val);
 }
 
