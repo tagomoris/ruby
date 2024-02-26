@@ -850,9 +850,9 @@ raise_load_if_failed(rb_execution_context_t *ec, enum ruby_tag_type state)
 static void
 rb_load_internal(VALUE fname, VALUE wrap)
 {
-    rb_namespace_t *ns;
     VALUE namespace;
     rb_execution_context_t *ec = GET_EC();
+    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     enum ruby_tag_type state = TAG_NONE;
     if (RTEST(wrap)) {
         if (!RB_TYPE_P(wrap, T_MODULE)) {
@@ -860,7 +860,7 @@ rb_load_internal(VALUE fname, VALUE wrap)
         }
         state = load_wrapping(ec, fname, wrap);
     }
-    else if ((ns = GET_THREAD()->ns) != NULL) {
+    else if (NAMESPACE_LOCAL_P(ns)) {
         namespace = ns->ns_object;
         state = load_wrapping(ec, fname, namespace);
     }
@@ -1206,7 +1206,7 @@ load_ext(VALUE path, VALUE fname)
 {
     VALUE loaded = path;
     rb_thread_t *th = GET_THREAD();
-    if (th->ns) {
+    if (IS_IN_NAMESPACE(th)) {
         loaded = rb_namespace_local_extension(th->ns->ns_object, path);
     }
     rb_scope_visibility_set(METHOD_VISI_PUBLIC);
@@ -1339,7 +1339,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
             else {
                 switch (found) {
                   case 'r':
-                      if (th->ns) {
+                      if (IS_IN_NAMESPACE(th)) {
                           load_wrapping(ec, path, th->ns->ns_object);
                       } else {
                           load_iseq_eval(ec, path);

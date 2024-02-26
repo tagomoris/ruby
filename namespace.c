@@ -1,6 +1,7 @@
 /* indent-tabs-mode: nil */
 
 #include "internal.h"
+#include "internal/eval.h"
 #include "internal/file.h"
 #include "internal/gc.h"
 #include "internal/hash.h"
@@ -8,12 +9,14 @@
 #include "internal/namespace.h"
 #include "ruby/internal/globals.h"
 #include "ruby/util.h"
+#include "vm_core.h"
 
 #include <stdio.h>
 
 VALUE rb_cNamespace;
 VALUE rb_cNamespaceEntry;
 
+static rb_namespace_t *global_ns;
 static char *tmp_dir;
 
 #define NAMESPACE_TMP_PREFIX "_ruby_ns_"
@@ -49,6 +52,30 @@ rb_namespace_available()
     return 0;
 }
 
+rb_namespace_t *
+rb_current_namespace(void)
+{
+    const rb_callable_method_entry_t *cme;
+    rb_namespace_t *ns;
+    rb_execution_context_t *ec = GET_EC();
+    rb_control_frame_t *cfp = ec->cfp;
+    int calling = 1;
+    while (calling) {
+        cme = rb_vm_frame_method_entry(cfp);
+        if (cme && cme->def) { // TODO: check this supports proc
+            ns = cme->def->ns;
+            if (ns) { // this method/proc is not a built-in method/proc
+                return ns;
+            }
+            cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
+        } else {
+            calling = 0;
+        }
+    }
+    // not in namespace-marked method calls
+    return rb_ec_thread_ptr(ec)->ns;
+}
+
 VALUE
 rb_namespace_of(VALUE klass)
 {
@@ -71,9 +98,34 @@ rb_klass_defined_under_namespace_p(VALUE klass, VALUE namespace)
     return Qfalse;
 }
 
+VALUE
+rb_mod_changed_in_current_namespace(VALUE mod)
+{
+    struct rb_refinements_refine_pair setup;
+    VALUE refinement, ret = mod;
+    rb_namespace_t *ns = rb_current_namespace();
+
+    if (NAMESPACE_LOCAL_P(ns) && mod != ns->ns_object) {
+        if (rb_klass_defined_under_namespace_p(mod, ns->ns_object)) {
+            // This klass was defined in the namespace, so can be changed directly
+        } else if (RB_TYPE_P(mod, T_MODULE) && FL_TEST(mod, RMODULE_IS_REFINEMENT)) {
+            // This klass is already refinement, should already be refined by ns->refiner
+        } else if (!NIL_P(refinement = rb_refinement_if_exist(ns->refiner, mod))) {
+            // The klass is already refined in this namespace
+            ret = refinement;
+        } else {
+            // The klass is defined out of namespace, and not refined yet in this namespace
+            rb_refinement_setup(&setup, ns->refiner, mod);
+            ret = setup.refinement;
+        }
+    }
+    return ret;
+}
+
 static void
 namespace_entry_initialize(rb_namespace_t *entry)
 {
+    entry->is_local = 1;
     entry->top_self = 0;
     entry->refiner = rb_module_new();
     entry->load_path = rb_ary_new();
@@ -118,23 +170,19 @@ void rb_namespace_gc_update_references(rb_namespace_t *ns)
 void
 rb_namespace_entry_mark(void *ptr)
 {
-    const rb_namespace_t *entry = (rb_namespace_t *) ptr;
-    if (entry->top_self) {
-        rb_gc_mark(entry->top_self);
-    }
-    rb_gc_mark(entry->refiner);
-    rb_gc_mark(entry->load_path);
-    rb_gc_mark(entry->expanded_load_path);
-    rb_gc_mark(entry->load_path_snapshot);
-    if (entry->load_path_check_cache) {
-        rb_gc_mark(entry->load_path_check_cache);
-    }
-    rb_gc_mark(entry->loaded_features);
-    rb_gc_mark(entry->loaded_features_snapshot);
+    const rb_namespace_t *entry = (rb_namespace_t *)ptr;
+    RUBY_MARK_UNLESS_NULL(entry->top_self);
+    RUBY_MARK_UNLESS_NULL(entry->refiner);
+    RUBY_MARK_UNLESS_NULL(entry->load_path);
+    RUBY_MARK_UNLESS_NULL(entry->expanded_load_path);
+    RUBY_MARK_UNLESS_NULL(entry->load_path_snapshot);
+    RUBY_MARK_UNLESS_NULL(entry->load_path_check_cache);
+    RUBY_MARK_UNLESS_NULL(entry->loaded_features);
+    RUBY_MARK_UNLESS_NULL(entry->loaded_features_snapshot);
     // rb_gc_mark(entry->loaded_features_index); // is st_table out of mark?
-    rb_gc_mark(entry->loaded_features_realpaths);
-    rb_gc_mark(entry->loaded_features_realpath_map);
-    rb_gc_mark(entry->ruby_dln_libmap);
+    RUBY_MARK_UNLESS_NULL(entry->loaded_features_realpaths);
+    RUBY_MARK_UNLESS_NULL(entry->loaded_features_realpath_map);
+    RUBY_MARK_UNLESS_NULL(entry->ruby_dln_libmap);
 }
 
 #define namespace_entry_free RUBY_TYPED_DEFAULT_FREE
@@ -229,7 +277,7 @@ static VALUE
 rb_namespace_current(VALUE klass)
 {
     rb_namespace_t *ns = GET_THREAD()->ns;
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         return ns->ns_object;
     }
     return Qnil;
@@ -491,7 +539,7 @@ namespace_pop(VALUE th_value)
     stack_len = RARRAY_LEN(namespaces);
     if (stack_len == 0) {
         th->namespaces = 0;
-        th->ns = NULL;
+        th->ns = global_ns;
     } else {
         upper_ns = RARRAY_AREF(namespaces, stack_len-1);
         th->ns = rb_get_namespace_t(upper_ns);
@@ -529,6 +577,18 @@ rb_namespace_require_relative(VALUE namespace, VALUE fname)
 }
 
 void
+rb_initialize_global_namespace(void)
+{
+    rb_namespace_t entry;
+    rb_thread_t *th = GET_THREAD();
+
+    namespace_entry_initialize(&entry);
+    entry.is_local = 0;
+    global_ns = &entry;
+    th->ns = global_ns;
+}
+
+void
 Init_Namespace(void)
 {
     tmp_dir = system_tmpdir();
@@ -550,4 +610,3 @@ Init_Namespace(void)
 
     // TODO: rb_define_singleton_method(vm->load_path, "resolve_feature_path", rb_resolve_feature_path, 1);
 }
-

@@ -2743,7 +2743,7 @@ rb_iseq_eval(const rb_iseq_t *iseq)
     const rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     VALUE val;
     vm_set_top_stack(ec, iseq);
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         rb_vm_using_module(ns->refiner);
     }
     val = vm_exec(ec);
@@ -2757,7 +2757,7 @@ rb_iseq_eval_main(const rb_iseq_t *iseq)
     const rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     VALUE val;
     vm_set_main_stack(ec, iseq);
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         rb_vm_using_module(ns->refiner);
     }
     val = vm_exec(ec);
@@ -3442,9 +3442,7 @@ thread_mark(void *ptr)
     RUBY_MARK_UNLESS_NULL(th->top_self);
     RUBY_MARK_UNLESS_NULL(th->top_wrapper);
     RUBY_MARK_UNLESS_NULL(th->namespaces);
-    if (th->ns) {
-        rb_namespace_entry_mark(th->ns);
-    }
+    if (th->ns && th->ns->is_local) rb_namespace_entry_mark(th->ns);
     if (th->root_fiber) rb_fiber_mark_self(th->root_fiber);
 
     RUBY_ASSERT(th->ec == rb_fiberptr_get_ec(th->ec->fiber_ptr));

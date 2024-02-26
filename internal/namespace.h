@@ -1,5 +1,8 @@
 #ifndef INTERNAL_NAMESPACE_H                                  /*-*-C-*-vi:se ft=c:*/
 #define INTERNAL_NAMESPACE_H
+
+#include "ruby/ruby.h"          /* for VALUE */
+
 /**
  * @author     Satoshi Tagomori <tagomoris@gmail.com>
  * @copyright  This  file  is   a  part  of  the   programming  language  Ruby.
@@ -14,7 +17,8 @@ struct rb_namespace_struct {
      * That is used from load.c, etc., that uses rb_namespace_t internally.
      */
     VALUE ns_object;
-    long ns_id;
+    long ns_id; // namespace id to generate ext filenames
+    char is_local;
 
     VALUE top_self;
     VALUE refiner;
@@ -35,10 +39,12 @@ struct rb_namespace_struct {
 typedef struct rb_namespace_struct rb_namespace_t;
 
 #define IS_NAMESPACE(obj) (CLASS_OF(obj) == rb_cNamespace)
+#define IS_IN_NAMESPACE(th) (th->ns && th->ns->is_local)
+#define NAMESPACE_LOCAL_P(ns) (ns && ns->is_local)
 
-#define CURRENT_NS_x(th, attr) (th->ns ? th->ns->attr : th->vm->attr)
+#define CURRENT_NS_x(th, attr) (IS_IN_NAMESPACE(th) ? th->ns->attr : th->vm->attr)
 #define SET_NS_x(th, attr, value) do {    \
-    if (th->ns) { th->ns->attr = value; } \
+    if (IS_IN_NAMESPACE(th)) { th->ns->attr = value; } \
     else { th->vm->attr = value; }            \
 } while (0)
 
@@ -53,14 +59,17 @@ typedef struct rb_namespace_struct rb_namespace_t;
 #define CURRENT_LOADED_FEATURES_INDEX(th)        CURRENT_NS_x(th, loaded_features_index)
 #define CURRENT_LOADING_TABLE(th) CURRENT_NS_x(th, loading_table)
 
-#define CURRENT_RUBY_DLN_LIBMAP(th, map) (th->ns ? th->ns->ruby_dln_libmap : map)
+#define CURRENT_RUBY_DLN_LIBMAP(th, map) (IS_IN_NAMESPACE(th) ? th->ns->ruby_dln_libmap : map)
 
 #define SET_LOAD_PATH_CHECK_CACHE(th, value) SET_NS_x(th, load_path_check_cache, value)
 #define SET_EXPANDED_LOAD_PATH(th, value) SET_NS_x(th, expanded_load_path, value)
 
 int rb_namespace_available(void);
+rb_namespace_t * rb_current_namespace(void);
+
 VALUE rb_namespace_of(VALUE klass);
 VALUE rb_klass_defined_under_namespace_p(VALUE klass, VALUE namespace);
+VALUE rb_mod_changed_in_current_namespace(VALUE mod);
 
 void rb_namespace_entry_mark(void *);
 
@@ -68,5 +77,7 @@ rb_namespace_t * rb_namespace_alloc_init(void);
 rb_namespace_t * rb_get_namespace_t(VALUE ns);
 
 VALUE rb_namespace_local_extension(VALUE namespace, VALUE path);
+
+void rb_initialize_global_namespace(void);
 
 #endif /* INTERNAL_NAMESPACE_H */

@@ -793,11 +793,11 @@ reopenclass
     VALUE self;
     int global = 0;
     rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
-    VALUE klass = vm_reopen_class_or_module(id, flags, cbase, ns ? ns->ns_object : Qnil, &global);
+    VALUE klass = vm_reopen_class_or_module(id, flags, cbase, ns, &global);
 
     rb_iseq_check(class_iseq);
 
-    if (global && ns) {
+    if (global && NAMESPACE_LOCAL_P(ns)) {
         cref = vm_cref_push_with_refinement(ec, klass, ns->refiner);
         self = cref->klass_or_self;
     } else {
@@ -829,7 +829,7 @@ definemethod
 
     rb_iseq_check(iseq);
 
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         cref = vm_ec_cref(ec);
         klass = CREF_CLASS_FOR_DEFINITION(cref);
         if (klass == ns->ns_object) {
@@ -1046,9 +1046,9 @@ leave
 // attr bool leaf = false; /* has rb_threadptr_execute_interrupts() */
 // attr bool handles_sp = true;
 {
-    rb_namespace_t *ns;
     int finished;
     int using = 0;
+    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
     if (OPT_CHECKED_RUN) {
         const VALUE *const bp = vm_base_ptr(GET_CFP());
         if (GET_SP() != bp) {
@@ -1056,7 +1056,7 @@ leave
         }
     }
 
-    if ((ns = rb_ec_thread_ptr(ec)->ns) != 0) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         if (VM_FRAME_HOOKED_P(ec->cfp)) {
             /* TODO: check that the leaving frame is of reopenclass */
             using = 1;

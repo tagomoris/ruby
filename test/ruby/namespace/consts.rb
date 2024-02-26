@@ -7,12 +7,23 @@ end
 reopen_cm String
   STR_CONST1 = 112
 
+  # TODO: support remove_const in namespaces
+  # remove_const :STR_CONST0
+
+  def refer0
+    STR_CONST0
+  end
+
   def refer1
     STR_CONST1
   end
 
   def refer2
     STR_CONST2
+  end
+
+  def refer3
+    STR_CONST3
   end
 end
 
@@ -40,12 +51,24 @@ module ForConsts
     CONST1
   end
 
+  def self.get1
+    const_get(:CONST1)
+  end
+
   def self.refer2
     CONST2
   end
 
+  def self.get2
+    const_get(:CONST2)
+  end
+
   def self.refer3
     CONST3
+  end
+
+  def self.get3
+    const_get(:CONST3)
   end
 
   def self.refer_top_const
@@ -54,14 +77,42 @@ module ForConsts
 
   # for String
   class Proxy
+    def call_str_refer0
+      String.new.refer0
+    end
+
+    def call_str_get0
+      String.const_get(:STR_CONST0)
+    end
+
     def call_str_refer1
       String.new.refer1
+    end
+
+    def call_str_get1
+      String.const_get(:STR_CONST1)
     end
 
     String::STR_CONST2 = 223
 
     def call_str_refer2
       String.new.refer2
+    end
+
+    def call_str_get2
+      String.const_get(:STR_CONST2)
+    end
+
+    def call_str_set3
+      String.const_set(:STR_CONST3, 334)
+    end
+
+    def call_str_refer3
+      String.new.refer3
+    end
+
+    def call_str_get3
+      String.const_get(:STR_CONST3)
     end
 
     # for Integer
@@ -78,6 +129,6 @@ ForConsts.refer_all
 String::STR_CONST1
 Integer::INT_CONST1
 
-# TODO: If we execute this sentence once, the constant value will be cached on ISeq inline constant cache.
-#       And it changes the behavior of ForConsts.refer_consts_directly called from global.
+# If we execute this sentence once, the constant value will be cached on ISeq inline constant cache.
+# And it changes the behavior of ForConsts.refer_consts_directly called from global.
 # ForConsts.refer_consts_directly # should not raise errors too

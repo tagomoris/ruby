@@ -5477,14 +5477,14 @@ vm_define_module(ID id, rb_num_t flags, VALUE cbase)
 }
 
 static VALUE
-vm_reopen_class_or_module(ID id, rb_num_t flags, VALUE cbase, VALUE namespace, int *global)
+vm_reopen_class_or_module(ID id, rb_num_t flags, VALUE cbase, rb_namespace_t *ns, int *global)
 {
     VALUE target;
 
     vm_check_if_namespace(cbase);
 
     target = vm_const_get_under(id, flags, cbase);
-    if (target == 0 && !NIL_P(namespace)) {
+    if (target == 0 && NAMESPACE_LOCAL_P(ns)) {
         target = vm_const_search_from(id, flags, rb_cObject);
         *global = 1;
     }

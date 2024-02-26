@@ -1737,7 +1737,7 @@ eval_string_with_cref(VALUE self, VALUE src, rb_cref_t *cref, VALUE file, int li
     }
     vm_set_eval_stack(ec, iseq, cref, &block);
 
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         rb_vm_using_module(ns->refiner);
     }
 
@@ -1763,7 +1763,7 @@ eval_string_with_scope(VALUE scope, VALUE src, VALUE file, int line)
         vm_bind_update_env(scope, bind, vm_make_env_object(ec, ec->cfp));
     }
 
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         rb_vm_using_module(ns->refiner);
     }
 

@@ -244,45 +244,69 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_add_constants_in_namespace
-    assert_raise(NameError) { String.const_get(:CONST1) }
-    assert_raise(NameError) { String::CONST2 }
-    assert_raise(NameError) { Integer.const_get(:CONST1) }
-    assert_raise(NameError) { Integer::CONST2 }
+    String.const_set(:STR_CONST0, 999)
+    assert_equal 999, String::STR_CONST0
+    assert_equal 999, String.const_get(:STR_CONST0)
+
+    assert_raise(NameError) { String.const_get(:STR_CONST1) }
+    assert_raise(NameError) { String::STR_CONST2 }
+    assert_raise(NameError) { String::STR_CONST3 }
+    assert_raise(NameError) { Integer.const_get(:INT_CONST1) }
 
     suppress_warning do
       @n.require_relative('namespace/consts')
     end
-    assert_raise(NameError) { String::CONST1 }
-    assert_raise(NameError) { String::CONST2 }
-    assert_raise(NameError) { Integer::CONST1 }
+    assert_equal 999, String::STR_CONST0
+    assert_raise(NameError) { String::STR_CONST1 }
+    assert_raise(NameError) { String::STR_CONST2 }
+    assert_raise(NameError) { Integer::INT_CONST1 }
 
     assert_not_nil @n::ForConsts.refer_all
 
+    # TODO: support #remove_const in namespaces
+    # assert_raise(NameError) { @n::ForConsts.refer0 }
+    # assert_raise(NameError) { @n::ForConsts.get0 }
+
     assert_equal 112, @n::ForConsts.refer1
+    assert_equal 112, @n::ForConsts.get1
     assert_equal 112, @n::ForConsts::CONST1
     assert_equal 222, @n::ForConsts.refer2
+    assert_equal 222, @n::ForConsts.get2
     assert_equal 222, @n::ForConsts::CONST2
     assert_equal 333, @n::ForConsts.refer3
+    assert_equal 333, @n::ForConsts.get3
     assert_equal 333, @n::ForConsts::CONST3
 
     suppress_warning do
       @n::ForConsts.const_set(:CONST3, 334)
     end
     assert_equal 334, @n::ForConsts::CONST3
+    assert_equal 334, @n::ForConsts.refer3
+    assert_equal 334, @n::ForConsts.get3
 
     assert_equal 10, @n::ForConsts.refer_top_const
 
     # use Proxy object to use usual methods instead of singleton methods
     proxy = @n::ForConsts::Proxy.new
     assert_equal 112, proxy.call_str_refer1
+    assert_equal 112, proxy.call_str_get1
     assert_equal 223, proxy.call_str_refer2
+    assert_equal 223, proxy.call_str_get2
+    assert_equal 333, proxy.call_str_refer3
+    assert_equal 333, proxy.call_str_get3
+
+    suppress_warning do
+      proxy.call_str_set3
+    end
+    assert_equal 334, proxy.call_str_refer3
+    assert_equal 334, proxy.call_str_get3
 
     assert_equal 1, proxy.refer_int_const1
 
-    assert_raise(NameError) { String::CONST1 }
-    assert_raise(NameError) { String::CONST2 }
-    assert_raise(NameError) { Integer::CONST1 }
-
-    # TODO: const_set/const_get
+    assert_equal 999, String::STR_CONST0
+    assert_raise(NameError) { String::STR_CONST1 }
+    assert_raise(NameError) { String::STR_CONST2 }
+    assert_raise(NameError) { String::STR_CONST3 }
+    assert_raise(NameError) { Integer::INT_CONST1 }
   end
 end

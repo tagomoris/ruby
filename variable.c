@@ -2652,7 +2652,7 @@ rb_autoload_str(VALUE module, ID name, VALUE feature)
 {
     rb_namespace_t *ns = GET_THREAD()->ns;
     VALUE current_namespace = Qnil;
-    if (ns) {
+    if (NAMESPACE_LOCAL_P(ns)) {
         current_namespace = ns->ns_object;
     }
 
@@ -3089,13 +3089,7 @@ rb_const_search_from(VALUE klass, ID id, int exclude, int recurse, int visibilit
 {
     VALUE value, current, refinement;
     bool first_iteration = true;
-    const rb_execution_context_t *ec = GET_EC();
-    rb_namespace_t *ns = rb_ec_thread_ptr(ec)->ns;
-    const rb_callable_method_entry_t *cme = rb_vm_frame_method_entry(ec->cfp);
-
-    if (cme && cme->def && cme->def->ns) {
-        ns = cme->def->ns;
-    }
+    rb_namespace_t *ns = rb_current_namespace();
 
     for (current = klass;
             RTEST(current);
@@ -3116,7 +3110,7 @@ rb_const_search_from(VALUE klass, ID id, int exclude, int recurse, int visibilit
         tmp = current;
         if (BUILTIN_TYPE(tmp) == T_ICLASS) tmp = RBASIC(tmp)->klass;
 
-        if (ns) {
+        if (NAMESPACE_LOCAL_P(ns)) {
             refinement = rb_refinement_if_exist(ns->refiner, tmp);
             if (!NIL_P(refinement)) {
                 tmp = refinement;
@@ -3633,31 +3627,7 @@ const_set(VALUE klass, ID id, VALUE val)
 void
 rb_const_set(VALUE klass, ID id, VALUE val)
 {
-    const rb_callable_method_entry_t *cme;
-    VALUE refinement;
-    struct rb_refinements_refine_pair setup;
-    rb_namespace_t *ns = GET_THREAD()->ns;
-
-    if (!ns) {
-        cme = rb_vm_frame_method_entry(GET_EC()->cfp);
-        if (cme && cme->def && cme->def->ns) {
-            ns = cme->def->ns;
-        }
-    }
-    if (ns && klass != ns->ns_object) {
-        if (rb_klass_defined_under_namespace_p(klass, ns->ns_object)) {
-            // This klass was defined in the namespace, so can be changed directly
-        } else if (IS_REFINEMENT_P(klass)) {
-            // This klass is already refinement, should already be refined by ns->refiner
-        } else if (!NIL_P(refinement = rb_refinement_if_exist(ns->refiner, klass))) {
-            // The klass is already refined in this namespace
-            klass = refinement;
-        } else {
-            // The klass is defined out of namespace, and not refined yet in this namespace
-            rb_refinement_setup(&setup, ns->refiner, klass);
-            klass = setup.refinement;
-        }
-    }
+    klass = rb_mod_changed_in_current_namespace(klass);
     const_set(klass, id, val);
     const_added(klass, id);
 }

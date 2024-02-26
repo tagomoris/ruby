@@ -104,6 +104,7 @@ ruby_init(void)
         }
         exit(EXIT_FAILURE);
     }
+    rb_initialize_global_namespace();
 }
 
 void *
