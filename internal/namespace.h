@@ -65,7 +65,7 @@ typedef struct rb_namespace_struct rb_namespace_t;
 #define SET_EXPANDED_LOAD_PATH(th, value) SET_NS_x(th, expanded_load_path, value)
 
 int rb_namespace_available(void);
-rb_namespace_t * rb_current_namespace(void);
+const rb_namespace_t * rb_current_namespace(void);
 
 VALUE rb_namespace_of(VALUE klass);
 VALUE rb_klass_defined_under_namespace_p(VALUE klass, VALUE namespace);

@@ -386,7 +386,8 @@ vm_push_frame(rb_execution_context_t *ec,
 #if VM_DEBUG_BP_CHECK
         .bp_check   = sp,
 #endif
-        .jit_return = NULL
+        .jit_return = NULL,
+        .ns         = NULL
     };
 
     ec->cfp = cfp;
@@ -4769,6 +4770,20 @@ block_proc_is_lambda(const VALUE procval)
     }
 }
 
+static inline const rb_namespace_t *
+block_proc_namespace(const VALUE procval)
+{
+    rb_proc_t *proc;
+
+    if (procval) {
+        GetProcPtr(procval, proc);
+        return proc->ns;
+    }
+    else {
+        return NULL;
+    }
+}
+
 static VALUE
 vm_yield_with_cfunc(rb_execution_context_t *ec,
                     const struct rb_captured_block *captured,
@@ -4908,6 +4923,8 @@ vm_yield_setup_args(rb_execution_context_t *ec, const rb_iseq_t *iseq, const int
 
 /* ruby iseq -> ruby block */
 
+static void vm_using_module(VALUE module);
+
 static VALUE
 vm_invoke_iseq_block(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
                      struct rb_calling_info *calling, const struct rb_callinfo *ci,
@@ -4919,6 +4936,7 @@ vm_invoke_iseq_block(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
     VALUE * const rsp = GET_SP() - calling->argc;
     VALUE * const argv = rsp;
     int opt_pc = vm_callee_setup_block_arg(ec, calling, ci, iseq, argv, is_lambda ? arg_setup_method : arg_setup_block);
+    const rb_namespace_t *ns = rb_current_namespace();
 
     SET_SP(rsp);
 
@@ -4929,6 +4947,11 @@ vm_invoke_iseq_block(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
                   ISEQ_BODY(iseq)->iseq_encoded + opt_pc,
                   rsp + arg_size,
                   ISEQ_BODY(iseq)->local_table_size - arg_size, ISEQ_BODY(iseq)->stack_max);
+
+    if (calling->proc_ns && ns != calling->proc_ns && NAMESPACE_LOCAL_P(calling->proc_ns)) {
+        // TODO: fix this wild manner way to tell namespace
+        ec->cfp->ns = calling->proc_ns;
+    }
 
     return Qundef;
 }
@@ -5022,6 +5045,9 @@ vm_invoke_proc_block(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
 {
     while (vm_block_handler_type(block_handler) == block_handler_type_proc) {
         VALUE proc = VM_BH_TO_PROC(block_handler);
+        if (!calling->proc_ns) {
+            calling->proc_ns = block_proc_namespace(proc);
+        }
         is_lambda = block_proc_is_lambda(proc);
         block_handler = vm_proc_to_block_handler(proc);
     }

@@ -235,6 +235,95 @@ class TestNamespace < Test::Unit::TestCase
     assert_equal "yay, yay!", @n::Baz.yay_with_binding
   end
 
+  module ProcLookupTestA
+    module B
+      VALUE = 111
+    end
+  end
+
+  def make_proc_from_block(&b)
+    b
+  end
+
+  def test_proc_from_global_works_with_global_definitions
+    @n.require_relative('namespace/procs')
+
+    str_pr1 = Proc.new { String.new.yay }
+    str_pr2 = proc { String.new.yay }
+    str_pr3 = lambda { String.new.yay }
+    str_pr4 = ->(){ String.new.yay }
+    str_pr5 = make_proc_from_block { String.new.yay }
+    str_pr6 = @n::ProcInNS.make_proc_from_block { String.new.yay }
+
+    assert_raise(NoMethodError) { str_pr1.call }
+    assert_raise(NoMethodError) { str_pr2.call }
+    assert_raise(NoMethodError) { str_pr3.call }
+    assert_raise(NoMethodError) { str_pr4.call }
+    assert_raise(NoMethodError) { str_pr5.call }
+    assert_raise(NoMethodError) { str_pr6.call }
+
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr1) }
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr2) }
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr3) }
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr4) }
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr5) }
+    assert_raise(NoMethodError) { @n::ProcInNS.call_proc(str_pr6) }
+
+    const_pr1 = Proc.new { ProcLookupTestA::B::VALUE }
+    const_pr2 = proc { ProcLookupTestA::B::VALUE }
+    const_pr3 = lambda { ProcLookupTestA::B::VALUE }
+    const_pr4 = ->(){ ProcLookupTestA::B::VALUE }
+    const_pr5 = make_proc_from_block { ProcLookupTestA::B::VALUE }
+    const_pr6 = @n::ProcInNS.make_proc_from_block { ProcLookupTestA::B::VALUE }
+
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr1)
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr2)
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr3)
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr4)
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr5)
+    assert_equal 111, @n::ProcInNS.call_proc(const_pr6)
+  end
+
+  def test_proc_from_namespace_works_with_definitions_in_namespace
+    @n.require_relative('namespace/procs')
+
+    str_pr1 = @n::ProcInNS.make_str_proc(:proc_new)
+    str_pr2 = @n::ProcInNS.make_str_proc(:proc_f)
+    str_pr3 = @n::ProcInNS.make_str_proc(:lambda_f)
+    str_pr4 = @n::ProcInNS.make_str_proc(:lambda_l)
+    str_pr5 = @n::ProcInNS.make_str_proc(:block)
+
+    assert_equal "yay", str_pr1.call
+    assert_equal "yay", str_pr2.call
+    assert_equal "yay", str_pr3.call
+    assert_equal "yay", str_pr4.call
+    assert_equal "yay", str_pr5.call
+
+    const_pr1 = @n::ProcInNS.make_const_proc(:proc_new)
+    const_pr2 = @n::ProcInNS.make_const_proc(:proc_f)
+    const_pr3 = @n::ProcInNS.make_const_proc(:lambda_f)
+    const_pr4 = @n::ProcInNS.make_const_proc(:lambda_l)
+    const_pr5 = @n::ProcInNS.make_const_proc(:block)
+
+    assert_equal 222, const_pr1.call
+    assert_equal 222, const_pr2.call
+    assert_equal 222, const_pr3.call
+    assert_equal 222, const_pr4.call
+    assert_equal 222, const_pr5.call
+
+    str_const_pr1 = @n::ProcInNS.make_str_const_proc(:proc_new)
+    str_const_pr2 = @n::ProcInNS.make_str_const_proc(:proc_f)
+    str_const_pr3 = @n::ProcInNS.make_str_const_proc(:lambda_f)
+    str_const_pr4 = @n::ProcInNS.make_str_const_proc(:lambda_l)
+    str_const_pr5 = @n::ProcInNS.make_str_const_proc(:block)
+
+    assert_equal "yay,foo,222", @n::ProcInNS::CONST_PROC_NEW.call
+    assert_equal "yay,foo,222", @n::ProcInNS::CONST_PROC_F.call
+    assert_equal "yay,foo,222", @n::ProcInNS::CONST_LAMBDA_F.call
+    assert_equal "yay,foo,222", @n::ProcInNS::CONST_LAMBDA_L.call
+    assert_equal "yay,foo,222", @n::ProcInNS::CONST_BLOCK.call
+  end
+
   def suppress_warning
     v = $VERBOSE
     $VERBOSE = nil

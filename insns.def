@@ -836,7 +836,6 @@ definemethod
             is_toplevel_in_ns = TRUE;
             cref = vm_cref_push_with_refinement(ec, rb_cObject, ns->refiner);
             klass = cref->klass_or_self;
-            rb_warning("pushing a frame for namespace refinement");
             /* TODO: vm_call_cfunc_with_frame ? */
             vm_push_frame(ec, iseq, VM_FRAME_MAGIC_CLASS | VM_FRAME_FLAG_HOOKED | VM_ENV_FLAG_LOCAL, klass,
                           GET_BLOCK_HANDLER(),
@@ -850,7 +849,6 @@ definemethod
     vm_define_method(ec, Qnil, id, (VALUE)iseq, FALSE);
 
     if (is_toplevel_in_ns) {
-        rb_warning("popping a frame for namespace refinement");
         const VALUE *const bp = vm_base_ptr(ec->cfp);
         vm_pop_frame(ec, ec->cfp, bp);
 
@@ -864,6 +862,7 @@ definesmethod
 (VALUE obj)
 ()
 {
+    // TODO: insert namespace frame
     vm_define_method(ec, obj, id, (VALUE)iseq, TRUE);
 }
 

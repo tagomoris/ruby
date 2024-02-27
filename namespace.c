@@ -52,15 +52,18 @@ rb_namespace_available()
     return 0;
 }
 
-rb_namespace_t *
+const rb_namespace_t *
 rb_current_namespace(void)
 {
     const rb_callable_method_entry_t *cme;
-    rb_namespace_t *ns;
+    const rb_namespace_t *ns;
     rb_execution_context_t *ec = GET_EC();
     rb_control_frame_t *cfp = ec->cfp;
     int calling = 1;
     while (calling) {
+        if (cfp->ns) {
+            return cfp->ns;
+        }
         cme = rb_vm_frame_method_entry(cfp);
         if (cme && cme->def) { // TODO: check this supports proc
             ns = cme->def->ns;
@@ -103,7 +106,7 @@ rb_mod_changed_in_current_namespace(VALUE mod)
 {
     struct rb_refinements_refine_pair setup;
     VALUE refinement, ret = mod;
-    rb_namespace_t *ns = rb_current_namespace();
+    const rb_namespace_t *ns = rb_current_namespace();
 
     if (NAMESPACE_LOCAL_P(ns) && mod != ns->ns_object) {
         if (rb_klass_defined_under_namespace_p(mod, ns->ns_object)) {

@@ -3089,7 +3089,7 @@ rb_const_search_from(VALUE klass, ID id, int exclude, int recurse, int visibilit
 {
     VALUE value, current, refinement;
     bool first_iteration = true;
-    rb_namespace_t *ns = rb_current_namespace();
+    const rb_namespace_t *ns = rb_current_namespace();
 
     for (current = klass;
             RTEST(current);
