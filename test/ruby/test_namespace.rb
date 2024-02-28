@@ -324,14 +324,6 @@ class TestNamespace < Test::Unit::TestCase
     assert_equal "yay,foo,222", @n::ProcInNS::CONST_BLOCK.call
   end
 
-  def suppress_warning
-    v = $VERBOSE
-    $VERBOSE = nil
-    yield
-  ensure
-    $VERBOSE = v
-  end
-
   def test_add_constants_in_namespace
     String.const_set(:STR_CONST0, 999)
     assert_equal 999, String::STR_CONST0
@@ -342,7 +334,7 @@ class TestNamespace < Test::Unit::TestCase
     assert_raise(NameError) { String::STR_CONST3 }
     assert_raise(NameError) { Integer.const_get(:INT_CONST1) }
 
-    suppress_warning do
+    EnvUtil.suppress_warning do
       @n.require_relative('namespace/consts')
     end
     assert_equal 999, String::STR_CONST0
@@ -366,7 +358,7 @@ class TestNamespace < Test::Unit::TestCase
     assert_equal 333, @n::ForConsts.get3
     assert_equal 333, @n::ForConsts::CONST3
 
-    suppress_warning do
+    EnvUtil.suppress_warning do
       @n::ForConsts.const_set(:CONST3, 334)
     end
     assert_equal 334, @n::ForConsts::CONST3
@@ -384,7 +376,7 @@ class TestNamespace < Test::Unit::TestCase
     assert_equal 333, proxy.call_str_refer3
     assert_equal 333, proxy.call_str_get3
 
-    suppress_warning do
+    EnvUtil.suppress_warning do
       proxy.call_str_set3
     end
     assert_equal 334, proxy.call_str_refer3
