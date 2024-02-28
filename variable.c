@@ -881,10 +881,20 @@ rb_gvar_set_entry(struct rb_global_entry *entry, VALUE val)
 VALUE
 rb_gvar_set(ID id, VALUE val)
 {
+    VALUE retval;
     struct rb_global_entry *entry;
+    const rb_namespace_t *ns = rb_current_namespace();
+
     entry = rb_global_entry(id);
 
-    return rb_gvar_set_entry(entry, val);
+    if (NAMESPACE_LOCAL_P(ns) && entry->var->setter != rb_gvar_readonly_setter) {
+        rb_hash_aset(ns->gvar_tbl, rb_id2sym(entry->id), val);
+        retval = val;
+        // TODO: think about trace
+    } else {
+        retval = rb_gvar_set_entry(entry, val);
+    }
+    return retval;
 }
 
 VALUE
@@ -896,9 +906,27 @@ rb_gv_set(const char *name, VALUE val)
 VALUE
 rb_gvar_get(ID id)
 {
+    VALUE retval, gvars, key;
     struct rb_global_entry *entry = rb_global_entry(id);
     struct rb_global_variable *var = entry->var;
-    return (*var->getter)(entry->id, var->data);
+    const rb_namespace_t *ns = rb_current_namespace();
+
+    if (NAMESPACE_LOCAL_P(ns) && (!entry || entry->var->setter != rb_gvar_readonly_setter)) {
+        gvars = ns->gvar_tbl;
+        key = rb_id2sym(entry->id);
+        if (RTEST(rb_hash_has_key(gvars, key))) { // this gvar is already cached
+            retval = rb_hash_aref(gvars, key);
+        } else {
+            retval = (*var->getter)(entry->id, var->data);
+            if (rb_obj_respond_to(retval, rb_intern("clone"), 1)) {
+                retval = rb_funcall(retval, rb_intern("clone"), 0);
+            }
+            rb_hash_aset(gvars, key, retval);
+        }
+    } else {
+        retval = (*var->getter)(entry->id, var->data);
+    }
+    return retval;
 }
 
 VALUE
@@ -952,6 +980,7 @@ rb_f_global_variables(void)
     if (!rb_ractor_main_p()) {
         rb_raise(rb_eRactorIsolationError, "can not access global variables from non-main Ractors");
     }
+    /* gvar access (get/set) in namespaces creates gvar entries globally */
 
     rb_id_table_foreach(rb_global_tbl, gvar_i, (void *)ary);
     if (!NIL_P(backref)) {

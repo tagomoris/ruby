@@ -23,7 +23,6 @@ struct rb_namespace_struct {
     VALUE top_self;
     VALUE refiner;
 
-    /* for Namespace */
     VALUE load_path;
     VALUE load_path_snapshot;
     VALUE load_path_check_cache;
@@ -35,6 +34,8 @@ struct rb_namespace_struct {
     struct st_table *loaded_features_index;
     struct st_table *loading_table;
     VALUE ruby_dln_libmap;
+
+    VALUE gvar_tbl;
 };
 typedef struct rb_namespace_struct rb_namespace_t;
 

@@ -142,6 +142,7 @@ namespace_entry_initialize(rb_namespace_t *entry)
     entry->loaded_features_realpath_map = rb_hash_new();
     entry->loading_table = st_init_strtable();
     entry->ruby_dln_libmap = rb_hash_new_with_size(0);
+    entry->gvar_tbl = rb_hash_new_with_size(0);
 
     // TODO: if $LOAD_PATH returns the load_path of the current namespace,
     //       all of them have to be responsible to the method .resolve_feature_path.
@@ -168,6 +169,7 @@ void rb_namespace_gc_update_references(rb_namespace_t *ns)
     ns->loaded_features_realpaths = rb_gc_location(ns->loaded_features_realpaths);
     ns->loaded_features_realpath_map = rb_gc_location(ns->loaded_features_realpath_map);
     ns->ruby_dln_libmap = rb_gc_location(ns->ruby_dln_libmap);
+    ns->gvar_tbl = rb_gc_location(ns->gvar_tbl);
 }
 
 void
@@ -186,6 +188,7 @@ rb_namespace_entry_mark(void *ptr)
     RUBY_MARK_UNLESS_NULL(entry->loaded_features_realpaths);
     RUBY_MARK_UNLESS_NULL(entry->loaded_features_realpath_map);
     RUBY_MARK_UNLESS_NULL(entry->ruby_dln_libmap);
+    RUBY_MARK_UNLESS_NULL(entry->gvar_tbl);
 }
 
 #define namespace_entry_free RUBY_TYPED_DEFAULT_FREE
@@ -279,7 +282,7 @@ rb_namespace_s_setenabled(VALUE namespace, VALUE arg)
 static VALUE
 rb_namespace_current(VALUE klass)
 {
-    rb_namespace_t *ns = GET_THREAD()->ns;
+    rb_namespace_t *ns = rb_current_namespace();
     if (NAMESPACE_LOCAL_P(ns)) {
         return ns->ns_object;
     }

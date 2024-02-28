@@ -1,4 +1,13 @@
 # frozen_string_literal: true
 
-$TESTING_NAMESPACES ||= []
-$TESTING_NAMESPACES << Namespace.current
+$ns_in_ns = ::Namespace.current
+
+module CurrentNamespace
+  def self.in_require
+    $ns_in_ns
+  end
+
+  def self.in_method_call
+    ::Namespace.current
+  end
+end

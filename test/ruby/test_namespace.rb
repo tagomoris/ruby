@@ -24,11 +24,12 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_current_namespace
-    $TESTING_NAMESPACES = []
+    global = Namespace.current
+    assert_nil global
     @n.require_relative('namespace/current')
-    assert_equal 1, $TESTING_NAMESPACES.size
-    assert $TESTING_NAMESPACES[0].is_a?(Namespace)
-    assert_equal @n, $TESTING_NAMESPACES[0]
+    assert_equal @n, @n::CurrentNamespace.in_require
+    assert_equal @n, @n::CurrentNamespace.in_method_call
+    assert_nil Namespace.current
   end
 
   def test_require_rb_separately
@@ -389,5 +390,44 @@ class TestNamespace < Test::Unit::TestCase
     assert_raise(NameError) { String::STR_CONST2 }
     assert_raise(NameError) { String::STR_CONST3 }
     assert_raise(NameError) { Integer::INT_CONST1 }
+  end
+
+  def test_global_variables
+    default_l = $-0
+    default_f = $,
+
+    assert_equal "\n", $-0 # equal to $/, line splitter
+    assert_equal nil, $,   # field splitter
+
+    @n.require_relative('namespace/global_vars')
+
+    # read first
+    assert_equal "\n", @n::LineSplitter.read
+    @n::LineSplitter.write("\r\n")
+    assert_equal "\r\n", @n::LineSplitter.read
+    assert_equal "\n", $-0
+
+    # write first
+    @n::FieldSplitter.write(",")
+    assert_equal ",", @n::FieldSplitter.read
+    assert_equal nil, $,
+
+    # used only in ns
+    assert !global_variables.include?(:$used_only_in_ns)
+    @n::UniqueGvar.write(123)
+    assert_equal 123, @n::UniqueGvar.read
+    assert_nil $used_only_in_ns
+
+    # Kernel#global_variables returns the sum of all gvars.
+    global_gvars = global_variables.sort
+    assert_equal global_gvars, @n::UniqueGvar.gvars_in_ns.sort
+    @n::UniqueGvar.write_only(456)
+    assert_equal (global_gvars + [:$write_only_var_in_ns]).sort, @n::UniqueGvar.gvars_in_ns.sort
+    assert_equal (global_gvars + [:$write_only_var_in_ns]).sort, global_variables.sort
+  ensure
+    EnvUtil.suppress_warning do
+      $-0 = default_l
+      $, = default_f
+    end
   end
 end
