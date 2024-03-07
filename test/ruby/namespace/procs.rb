@@ -1,4 +1,4 @@
-reopen_cm String
+class String
   FOO = "foo"
   def yay
     "yay"

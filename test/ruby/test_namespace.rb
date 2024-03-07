@@ -33,7 +33,7 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_require_rb_separately
-    assert_raise(NameError) { NS_A } # !
+    assert_raise(NameError) { NS_A }
     assert_raise(NameError) { NS_B }
 
     @n.require(File.join(__dir__, 'namespace', 'a.1_1_0'))
@@ -82,7 +82,7 @@ class TestNamespace < Test::Unit::TestCase
 
   def test_namespace_in_namespace
     assert_raise(NameError) { NS1 }
-    assert_raise(NameError) { NS_A } # !
+    assert_raise(NameError) { NS_A }
     assert_raise(NameError) { NS_B }
 
     @n.require_relative('namespace/ns')
@@ -100,7 +100,7 @@ class TestNamespace < Test::Unit::TestCase
   end
 
   def test_require_rb_2versions
-    assert_raise(NameError) { NS_A } # !
+    assert_raise(NameError) { NS_A }
 
     @n.require(File.join(__dir__, 'namespace', 'a.1_2_0'))
     assert_equal "1.2.0", @n::NS_A::VERSION
@@ -132,10 +132,11 @@ class TestNamespace < Test::Unit::TestCase
 
     assert_raise(NameError) { NS_A }
 
-    # autoload trigger B::BAR is valid even from global
-    assert_equal 'bar_b1', @n::NS_B::BAR # Oops, the autoload was triggered in the global namespace
+    # autoload trigger NS_B::BAR is valid even from global
+    assert_equal 'bar_b1', @n::NS_B::BAR
 
     assert_raise(NameError) { NS_A }
+    assert_raise(NameError) { NS_B }
   end
 
   def test_continuous_top_level_method_in_a_namespace
@@ -194,6 +195,30 @@ class TestNamespace < Test::Unit::TestCase
       assert_equal "yay", ns2::Bar.caller(proc_v) # should refer the global Target, not Foo in ns2
     end;
   end
+end
+
+class NSDummyBuiltinA; def foo; "a"; end; end
+module NSDummyBuiltinB; def foo; "b"; end; end
+Namespace.force_builtin(NSDummyBuiltinA)
+Namespace.force_builtin(NSDummyBuiltinB)
+
+class NSUsualClassC; def foo; "a"; end; end
+module NSUsualModuleD; def foo; "b"; end; end
+
+class TestNamespace < Test::Unit::TestCase
+  def test_builtin_classes_and_modules_are_reopened
+    @n.require_relative('namespace/reopen_classes_modules')
+
+    assert_equal "A", @n::NSReopenClassesModules.test_a
+    assert_raise(NameError){ @n::NSDummyBuiltinA }
+    assert_equal "B", @n::NSReopenClassesModules.test_b
+    assert_raise(NameError){ @n::NSDummyBuiltinB }
+
+    assert_raise(NameError){ @n::NSReopenClassesModules.test_c }
+    assert_not_nil @n::NSUsualClassC
+    assert_raise(NameError){ @n::NSReopenClassesModules.test_d }
+    assert_not_nil @n::NSUsualModuleD
+  end
 
   def test_methods_added_in_namespace_are_invisible_globally
     @n.require_relative('namespace/string_ext')
@@ -235,13 +260,15 @@ class TestNamespace < Test::Unit::TestCase
     @n.require_relative('namespace/string_ext_eval_caller')
     assert_equal "yay, yay!", @n::Baz.yay_with_binding
   end
+end
 
-  module ProcLookupTestA
-    module B
-      VALUE = 111
-    end
+module ProcLookupTestA
+  module B
+    VALUE = 111
   end
+end
 
+class TestNamespace < Test::Unit::TestCase
   def make_proc_from_block(&b)
     b
   end
@@ -323,6 +350,16 @@ class TestNamespace < Test::Unit::TestCase
     assert_equal "yay,foo,222", @n::ProcInNS::CONST_LAMBDA_F.call
     assert_equal "yay,foo,222", @n::ProcInNS::CONST_LAMBDA_L.call
     assert_equal "yay,foo,222", @n::ProcInNS::CONST_BLOCK.call
+  end
+end
+
+
+
+class TestNamespace < Test::Unit::TestCase
+  def test_class_module_singleton_methods
+  end
+
+  def test_object_singleon_methods
   end
 
   def test_add_constants_in_namespace
@@ -429,5 +466,51 @@ class TestNamespace < Test::Unit::TestCase
       $-0 = default_l
       $, = default_f
     end
+  end
+
+end
+
+class NSTestCIVar
+  @a = 1
+  def self.a
+    @a
+  end
+end
+
+module NSTestMIVar
+  @b = "x"
+  def self.b
+    @b
+  end
+end
+
+class TestNamespace < Test::Unit::TestCase
+  def test_class_module_instance_variables
+    assert_equal 1, NSTestCIVar.a
+    assert_equal "x", NSTestMIVar.b
+
+    pend # TODO: class singleton methods required
+    @n.require_relative('namespace/class_instance_vars')
+
+    assert_equal 1, CMIVar.a
+    assert_equal 1, CMIVar.instance_variable_get(:a)
+    assert_equal "x", CMIVar.b
+    assert_equal "x", CMIVar.instance_variable_get(:b)
+    assert_nil CMIVar.instance_variable_get(:c)
+
+    assert_equal 2, CMIVar.get_a
+    assert_equal 2, CMIVar.call_a
+    assert_equal 2, CMIVar.call_a_re
+
+    assert_equal "y", CMIVar.get_b
+    assert_equal "y", CMIVar.call_b
+    assert_equal "y", CMIVar.call_b_re
+
+    assert_equal :one, CMIVar.get_c
+    assert_equal :one, CMIVar.call_c_re
+  end
+
+  def test_class_variables
+    pend # TODO: What we should do on class variables?
   end
 end

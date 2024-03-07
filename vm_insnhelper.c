@@ -5462,9 +5462,9 @@ unmatched_redefinition(const char *type, VALUE cbase, ID id, VALUE old)
 }
 
 static VALUE
-vm_define_class(ID id, rb_num_t flags, VALUE cbase, VALUE super)
+vm_define_class(ID id, rb_num_t flags, VALUE cbase, VALUE super, rb_namespace_t *ns, int *refined)
 {
-    VALUE klass;
+    VALUE klass, klass_ns;
 
     if (VM_DEFINECLASS_HAS_SUPERCLASS_P(flags) && !RB_TYPE_P(super, T_CLASS)) {
         rb_raise(rb_eTypeError,
@@ -5476,7 +5476,23 @@ vm_define_class(ID id, rb_num_t flags, VALUE cbase, VALUE super)
 
     /* find klass */
     rb_autoload_load(cbase, id);
-    if ((klass = vm_const_get_under(id, flags, cbase)) != 0) {
+
+    klass = vm_const_get_under(id, flags, cbase);
+    if (!klass && NAMESPACE_LOCAL_P(ns)) {
+        klass = vm_const_get_under(id, flags, rb_cObject);
+        if (klass) {
+            klass_ns = rb_namespace_of(klass);
+            if (RTEST(klass_ns)) {
+                // the klass is not a built-in class, thus should be recreated in namespaces
+                klass = 0;
+            } else {
+                // the klass is a built-in class, should be refined in namespaces
+                *refined = 1;
+            }
+        }
+    }
+
+    if (klass != 0) {
         if (!vm_check_if_class(id, flags, super, klass))
             unmatched_redefinition("class", cbase, id, klass);
         return klass;
@@ -5487,12 +5503,28 @@ vm_define_class(ID id, rb_num_t flags, VALUE cbase, VALUE super)
 }
 
 static VALUE
-vm_define_module(ID id, rb_num_t flags, VALUE cbase)
+vm_define_module(ID id, rb_num_t flags, VALUE cbase, rb_namespace_t *ns, int *refined)
 {
-    VALUE mod;
+    VALUE mod, mod_ns;
 
     vm_check_if_namespace(cbase);
-    if ((mod = vm_const_get_under(id, flags, cbase)) != 0) {
+
+    mod = vm_const_get_under(id, flags, cbase);
+    if (!mod && NAMESPACE_LOCAL_P(ns)) {
+        mod = vm_const_get_under(id, flags, rb_cObject);
+        if (mod) {
+            mod_ns = rb_namespace_of(mod);
+            if (RTEST(mod_ns)) {
+                // the module is not a built-in module, thus should be recreated in namespaces
+                mod = 0;
+            } else {
+                // the module is a built-in module, should be refined in namespaces
+                *refined = 1;
+            }
+        }
+    }
+
+    if (mod != 0) {
         if (!vm_check_if_module(id, mod))
             unmatched_redefinition("module", cbase, id, mod);
         return mod;
@@ -5543,14 +5575,16 @@ static VALUE
 vm_find_or_create_class_by_id(ID id,
                               rb_num_t flags,
                               VALUE cbase,
-                              VALUE super)
+                              VALUE super,
+                              rb_namespace_t *ns,
+                              int *refined)
 {
     rb_vm_defineclass_type_t type = VM_DEFINECLASS_TYPE(flags);
 
     switch (type) {
       case VM_DEFINECLASS_TYPE_CLASS:
         /* classdef returns class scope value */
-        return vm_define_class(id, flags, cbase, super);
+        return vm_define_class(id, flags, cbase, super, ns, refined);
 
       case VM_DEFINECLASS_TYPE_SINGLETON_CLASS:
         /* classdef returns class scope value */
@@ -5558,7 +5592,7 @@ vm_find_or_create_class_by_id(ID id,
 
       case VM_DEFINECLASS_TYPE_MODULE:
         /* classdef returns class scope value */
-        return vm_define_module(id, flags, cbase);
+        return vm_define_module(id, flags, cbase, ns, refined);
 
       default:
         rb_bug("unknown defineclass type: %d", (int)type);

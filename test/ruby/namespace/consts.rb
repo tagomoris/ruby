@@ -1,10 +1,10 @@
-reopen_cm String
+class String
   STR_CONST1 = 111
   STR_CONST2 = 222
   STR_CONST3 = 333
 end
 
-reopen_cm String
+class String
   STR_CONST1 = 112
 
   # TODO: support remove_const in namespaces

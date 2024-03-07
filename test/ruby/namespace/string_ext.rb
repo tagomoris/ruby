@@ -1,4 +1,4 @@
-reopen_cm String
+class String
   def yay
     "yay"
   end

@@ -7,6 +7,7 @@
 #include "internal/hash.h"
 #include "internal/load.h"
 #include "internal/namespace.h"
+#include "internal/variable.h"
 #include "ruby/internal/globals.h"
 #include "ruby/util.h"
 #include "vm_core.h"
@@ -282,10 +283,25 @@ rb_namespace_s_setenabled(VALUE namespace, VALUE arg)
 static VALUE
 rb_namespace_current(VALUE klass)
 {
-    rb_namespace_t *ns = rb_current_namespace();
+    const rb_namespace_t *ns = rb_current_namespace();
     if (NAMESPACE_LOCAL_P(ns)) {
         return ns->ns_object;
     }
+    return Qnil;
+}
+
+static VALUE
+rb_namespace_s_is_builtin_p(VALUE namespace, VALUE klass)
+{
+    return RBOOL(NIL_P(rb_namespace_of(klass)));
+}
+
+static VALUE
+rb_namespace_s_force_builtin(VALUE namespace, VALUE klass)
+{
+    ID id_namespace;
+    CONST_ID(id_namespace, "__namespace__");
+    rb_attr_delete(klass, id_namespace);
     return Qnil;
 }
 
@@ -585,12 +601,12 @@ rb_namespace_require_relative(VALUE namespace, VALUE fname)
 void
 rb_initialize_global_namespace(void)
 {
-    rb_namespace_t entry;
     rb_thread_t *th = GET_THREAD();
+    VALUE global_namespace = rb_funcall(rb_cNamespace, rb_intern("new"), 0);
+    rb_namespace_t *ns = rb_get_namespace_t(global_namespace);
 
-    namespace_entry_initialize(&entry);
-    entry.is_local = 0;
-    global_ns = &entry;
+    ns->is_local = 0;
+    global_ns = ns;
     th->ns = global_ns;
 }
 
@@ -608,6 +624,8 @@ Init_Namespace(void)
     rb_define_singleton_method(rb_cNamespace, "enabled", rb_namespace_s_getenabled, 0);
     rb_define_singleton_method(rb_cNamespace, "enabled=", rb_namespace_s_setenabled, 1);
     rb_define_singleton_method(rb_cNamespace, "current", rb_namespace_current, 0);
+    rb_define_singleton_method(rb_cNamespace, "is_builtin?", rb_namespace_s_is_builtin_p, 1);
+    rb_define_singleton_method(rb_cNamespace, "force_builtin", rb_namespace_s_force_builtin, 1);
 
     rb_define_method(rb_cNamespace, "load_path", rb_namespace_load_path, 0);
     rb_define_method(rb_cNamespace, "load", rb_namespace_load, -1);
