@@ -5588,6 +5588,10 @@ vm_find_or_create_class_by_id(ID id,
 
       case VM_DEFINECLASS_TYPE_SINGLETON_CLASS:
         /* classdef returns class scope value */
+        if (NAMESPACE_LOCAL_P(ns) && !RTEST(rb_namespace_of(cbase))) {
+            /* opening the singleton class of built-in classes in namespaces, should be refined */
+            *refined = 1;
+        }
         return rb_singleton_class(cbase);
 
       case VM_DEFINECLASS_TYPE_MODULE:

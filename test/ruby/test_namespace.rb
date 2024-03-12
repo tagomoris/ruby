@@ -353,10 +353,31 @@ class TestNamespace < Test::Unit::TestCase
   end
 end
 
+class NSBuiltinSMethodsC
+  def self.create
+    self.new
+  end
 
+  def self.prefix
+    "c-"
+  end
+end
+module NSBuiltinSMethodsM
+  def self.prefix
+    "m-"
+  end
+end
+Namespace.force_builtin(NSBuiltinSMethodsC)
+Namespace.force_builtin(NSBuiltinSMethodsM)
 
 class TestNamespace < Test::Unit::TestCase
   def test_class_module_singleton_methods
+    @n.require_relative('namespace/singleton_methods')
+
+    assert_equal "c-yay-c", @n::SingletonMethods.class_def_with_self
+    assert_equal "c-foo-c", @n::SingletonMethods.class_open_self
+    assert_equal "m-yay-m", @n::SingletonMethods.module_def_with_self
+    assert_equal "m-foo-m", @n::SingletonMethods.module_open_self
   end
 
   def test_object_singleon_methods
