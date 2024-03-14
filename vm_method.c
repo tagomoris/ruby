@@ -1476,6 +1476,11 @@ callable_method_entry_or_negative(VALUE klass, ID mid, VALUE *defined_class_ptr)
     const rb_callable_method_entry_t *cme;
 
     VM_ASSERT(RB_TYPE_P(klass, T_CLASS) || RB_TYPE_P(klass, T_ICLASS));
+
+    if (ruby_static_delayed_using_enabled) {
+        rb_refinement_activate_delayed_using(klass);
+    }
+
     RB_VM_LOCK_ENTER();
     {
         cme = cached_callable_method_entry(klass, mid);

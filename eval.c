@@ -50,6 +50,7 @@ VALUE rb_eLocalJumpError;
 VALUE rb_eSysStackError;
 
 ID ruby_static_id_signo, ruby_static_id_status;
+int ruby_static_delayed_using_enabled;
 extern ID ruby_static_id_cause;
 #define id_cause ruby_static_id_cause
 
@@ -1329,6 +1330,43 @@ rb_using_module(const rb_cref_t *cref, VALUE module)
     rb_clear_all_refinement_method_cache();
 }
 
+static void
+refinement_activate_delayed_using_once(VALUE klass)
+{
+    long i;
+    VALUE refinement, refinements;
+    ID id_delayed_using;
+    rb_cref_t *cref;
+    CONST_ID(id_delayed_using, "__delayed_using__");
+
+    if (NIL_P(rb_attr_get(klass, id_delayed_using))) {
+        return;
+    }
+    refinements = rb_attr_delete(klass, id_delayed_using);
+    if (NIL_P(refinements) || RARRAY_LEN(refinements) == 0) {
+        return;
+    }
+
+    cref = rb_vm_cref_replace_with_duplicated_cref();
+    for (i=0; i<RARRAY_LEN(refinements); i++) {
+        refinement = RARRAY_AREF(refinements, i);
+        if (RTEST(refinement)) {
+            rb_using_refinement(cref, klass, refinement);
+        }
+    }
+}
+
+void
+rb_refinement_activate_delayed_using(VALUE klass)
+{
+    VALUE k = klass;
+    for (; k; k = RCLASS_SUPER(klass)) {
+        rb_warn("delayed using activate:%"PRIsVALUE"", k);
+        refinement_activate_delayed_using_once(k);
+    }
+    rb_clear_all_refinement_method_cache();
+}
+
 /*
  *  call-seq:
  *     target    -> class_or_module
@@ -1490,6 +1528,37 @@ mod_using(VALUE self, VALUE module)
     return self;
 }
 
+static int
+refinement_delayed_using_push(VALUE klass, VALUE refinement, VALUE arg)
+{
+    VALUE refinements;
+    ID id_delayed_using;
+    CONST_ID(id_delayed_using, "__delayed_using__");
+
+    refinements = rb_attr_get(klass, id_delayed_using);
+    if (NIL_P(refinements)) {
+        refinements = rb_ary_new_from_args(1, refinement);
+        rb_ivar_set(klass, id_delayed_using, refinements);
+    } else {
+        rb_ary_push(refinements, refinement);
+    }
+    return ST_CONTINUE;
+}
+
+static VALUE
+mod_delayed_using(VALUE self, VALUE module)
+{
+    ID id_refinements;
+    VALUE refinements;
+
+    CONST_ID(id_refinements, "__refinements__");
+    refinements = rb_attr_get(module, id_refinements);
+    if (!NIL_P(refinements) && RHASH_SIZE(refinements) != 0) {
+        rb_hash_foreach(refinements, refinement_delayed_using_push, Qnil);
+    }
+    ruby_static_delayed_using_enabled = 1;
+    return self;
+}
 
 /*
  *  call-seq:
@@ -1829,6 +1898,8 @@ top_using(VALUE self, VALUE module)
     return self;
 }
 
+// TODO: top_delayed_using
+
 static const VALUE *
 errinfo_place(const rb_execution_context_t *ec)
 {
@@ -2067,6 +2138,7 @@ Init_eval(void)
     rb_define_private_method(rb_cModule, "prepend_features", rb_mod_prepend_features, 1);
     rb_define_private_method(rb_cModule, "refine", rb_mod_refine, 1);
     rb_define_private_method(rb_cModule, "using", mod_using, 1);
+    rb_define_private_method(rb_cModule, "delayed_using", mod_delayed_using, 1);
     rb_define_method(rb_cModule, "refinements", mod_refinements, 0);
     rb_define_singleton_method(rb_cModule, "used_modules",
                                rb_mod_s_used_modules, 0);
@@ -2103,6 +2175,7 @@ Init_eval(void)
 
     id_signo = rb_intern_const("signo");
     id_status = rb_intern_const("status");
+    ruby_static_delayed_using_enabled = 0;
 }
 
 int
