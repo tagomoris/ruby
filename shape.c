@@ -118,6 +118,7 @@ redblack_value(redblack_node_t * node)
     return (rb_shape_t *)((uintptr_t)node->value & (((uintptr_t)-1) - 1));
 }
 
+#ifdef HAVE_MMAP
 static redblack_id_t
 redblack_id_for(redblack_node_t * node)
 {
@@ -292,6 +293,7 @@ redblack_insert(redblack_node_t * tree, ID key, rb_shape_t * value)
         return root;
     }
 }
+#endif
 
 rb_shape_tree_t *rb_shape_tree_ptr = NULL;
 
@@ -694,8 +696,8 @@ rb_shape_get_next_iv_shape(rb_shape_t* shape, ID id)
     return get_next_shape_internal(shape, id, SHAPE_IVAR, &dont_care, true);
 }
 
-rb_shape_t *
-rb_shape_get_next(rb_shape_t *shape, VALUE obj, ID id)
+static inline rb_shape_t *
+shape_get_next(rb_shape_t *shape, VALUE obj, ID id, bool emit_warnings)
 {
     RUBY_ASSERT(!is_instance_id(id) || RTEST(rb_sym2str(ID2SYM(id))));
     if (UNLIKELY(shape->type == SHAPE_OBJ_TOO_COMPLEX)) {
@@ -713,7 +715,7 @@ rb_shape_get_next(rb_shape_t *shape, VALUE obj, ID id)
 
     if (BUILTIN_TYPE(obj) == T_OBJECT) {
         VALUE klass = rb_obj_class(obj);
-        allow_new_shape = RCLASS_EXT(klass)->variation_count < SHAPE_MAX_VARIATIONS;
+        allow_new_shape = RCLASS_VARIATION_COUNT(klass) < SHAPE_MAX_VARIATIONS;
     }
 
     bool variation_created = false;
@@ -722,14 +724,14 @@ rb_shape_get_next(rb_shape_t *shape, VALUE obj, ID id)
     // Check if we should update max_iv_count on the object's class
     if (BUILTIN_TYPE(obj) == T_OBJECT) {
         VALUE klass = rb_obj_class(obj);
-        if (new_shape->next_iv_index > RCLASS_EXT(klass)->max_iv_count) {
-            RCLASS_EXT(klass)->max_iv_count = new_shape->next_iv_index;
+        if (new_shape->next_iv_index > RCLASS_MAX_IV_COUNT(klass)) {
+            RCLASS_SET_MAX_IV_COUNT(klass, new_shape->next_iv_index);
         }
 
         if (variation_created) {
-            RCLASS_EXT(klass)->variation_count++;
-            if (rb_warning_category_enabled_p(RB_WARN_CATEGORY_PERFORMANCE)) {
-                if (RCLASS_EXT(klass)->variation_count >= SHAPE_MAX_VARIATIONS) {
+            RCLASS_VARIATION_COUNT(klass)++;
+            if (emit_warnings && rb_warning_category_enabled_p(RB_WARN_CATEGORY_PERFORMANCE)) {
+                if (RCLASS_VARIATION_COUNT(klass) >= SHAPE_MAX_VARIATIONS) {
                     rb_category_warn(
                         RB_WARN_CATEGORY_PERFORMANCE,
                         "The class %"PRIsVALUE" reached %d shape variations, instance variables accesses will be slower and memory usage increased.\n"
@@ -743,6 +745,18 @@ rb_shape_get_next(rb_shape_t *shape, VALUE obj, ID id)
     }
 
     return new_shape;
+}
+
+rb_shape_t *
+rb_shape_get_next(rb_shape_t *shape, VALUE obj, ID id)
+{
+    return shape_get_next(shape, obj, id, true);
+}
+
+rb_shape_t *
+rb_shape_get_next_no_warnings(rb_shape_t *shape, VALUE obj, ID id)
+{
+    return shape_get_next(shape, obj, id, false);
 }
 
 // Same as rb_shape_get_iv_index, but uses a provided valid shape id and index
@@ -1213,9 +1227,7 @@ rb_shape_find_by_id(VALUE mod, VALUE id)
 void
 Init_default_shapes(void)
 {
-    rb_shape_tree_t *st = ruby_mimmalloc(sizeof(rb_shape_tree_t));
-    memset(st, 0, sizeof(rb_shape_tree_t));
-    rb_shape_tree_ptr = st;
+    rb_shape_tree_ptr = xcalloc(1, sizeof(rb_shape_tree_t));
 
 #ifdef HAVE_MMAP
     rb_shape_tree_ptr->shape_list = (rb_shape_t *)mmap(NULL, rb_size_mul_or_raise(SHAPE_BUFFER_SIZE, sizeof(rb_shape_t), rb_eRuntimeError),

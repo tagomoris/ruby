@@ -157,7 +157,7 @@ VALUE io_spec_rb_io_wait_readable(VALUE self, VALUE io, VALUE read_p) {
 
   return ret ? Qtrue : Qfalse;
 #else
-  UNREACHABLE;
+  UNREACHABLE_RETURN(Qnil);
 #endif
 }
 
@@ -174,6 +174,10 @@ VALUE io_spec_rb_io_maybe_wait_writable(VALUE self, VALUE error, VALUE io, VALUE
 #endif
 
 #ifdef RUBY_VERSION_IS_3_1
+#ifdef SET_NON_BLOCKING_FAILS_ALWAYS
+NORETURN(VALUE io_spec_rb_io_maybe_wait_readable(VALUE self, VALUE error, VALUE io, VALUE timeout, VALUE read_p));
+#endif
+
 VALUE io_spec_rb_io_maybe_wait_readable(VALUE self, VALUE error, VALUE io, VALUE timeout, VALUE read_p) {
   int fd = io_spec_get_fd(io);
 #ifndef SET_NON_BLOCKING_FAILS_ALWAYS
@@ -209,7 +213,7 @@ VALUE io_spec_rb_io_maybe_wait_readable(VALUE self, VALUE error, VALUE io, VALUE
 
   return INT2NUM(ret);
 #else
-  UNREACHABLE;
+  UNREACHABLE_RETURN(Qnil);
 #endif
 }
 #endif
@@ -326,13 +330,15 @@ static VALUE io_spec_errno_set(VALUE self, VALUE val) {
 }
 
 VALUE io_spec_mode_sync_flag(VALUE self, VALUE io) {
+  int mode;
 #ifdef RUBY_VERSION_IS_3_3
-  if (rb_io_mode(io) & FMODE_SYNC) {
+  mode = rb_io_mode(io);
 #else
   rb_io_t *fp;
   GetOpenFile(io, fp);
-  if (fp->mode & FMODE_SYNC) {
+  mode = fp->mode;
 #endif
+  if (mode & FMODE_SYNC) {
     return Qtrue;
   } else {
     return Qfalse;

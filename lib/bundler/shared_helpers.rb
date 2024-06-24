@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 
-require "pathname"
-require "rbconfig"
-
 require_relative "version"
-require_relative "constants"
 require_relative "rubygems_integration"
 require_relative "current_ruby"
 
+autoload :Pathname, "pathname"
+
 module Bundler
+  autoload :WINDOWS, File.expand_path("constants", __dir__)
+  autoload :FREEBSD, File.expand_path("constants", __dir__)
+  autoload :NULL, File.expand_path("constants", __dir__)
+
   module SharedHelpers
     def root
       gemfile = find_gemfile

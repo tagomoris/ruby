@@ -130,7 +130,7 @@ rb_imemo_memsize(VALUE obj)
     size_t size = 0;
     switch (imemo_type(obj)) {
       case imemo_ast:
-        size += rb_ast_memsize((rb_ast_t *)obj);
+        rb_bug("imemo_ast is obsolete");
 
         break;
       case imemo_callcache:
@@ -181,6 +181,7 @@ rb_imemo_memsize(VALUE obj)
 static enum rb_id_table_iterator_result
 cc_table_mark_i(ID id, VALUE ccs_ptr, void *data)
 {
+    // looks duplicate to mark_cc_entry_i (gc.c)
     struct rb_class_cc_entries *ccs = (struct rb_class_cc_entries *)ccs_ptr;
     VM_ASSERT(vm_ccs_p(ccs));
     VM_ASSERT(id == ccs->cme->called_id);
@@ -196,7 +197,6 @@ cc_table_mark_i(ID id, VALUE ccs_ptr, void *data)
             VM_ASSERT((VALUE)data == ccs->entries[i].cc->klass);
             VM_ASSERT(vm_cc_check_cme(ccs->entries[i].cc, ccs->cme));
 
-            rb_gc_mark_movable((VALUE)ccs->entries[i].ci);
             rb_gc_mark_movable((VALUE)ccs->entries[i].cc);
         }
         return ID_TABLE_CONTINUE;
@@ -206,7 +206,8 @@ cc_table_mark_i(ID id, VALUE ccs_ptr, void *data)
 void
 rb_cc_table_mark(VALUE klass)
 {
-    struct rb_id_table *cc_tbl = RCLASS_CC_TBL(klass);
+    // TODO: delete this (and cc_table_mark_i) if it's ok
+    struct rb_id_table *cc_tbl = RCLASS_WRITABLE_CC_TBL(klass);
     if (cc_tbl) {
         rb_id_table_foreach(cc_tbl, cc_table_mark_i, (void *)klass);
     }
@@ -274,7 +275,7 @@ rb_imemo_mark_and_move(VALUE obj, bool reference_updating)
 {
     switch (imemo_type(obj)) {
       case imemo_ast:
-        rb_ast_mark_and_move((rb_ast_t *)obj, reference_updating);
+        rb_bug("imemo_ast is obsolete");
 
         break;
       case imemo_callcache: {
@@ -358,7 +359,9 @@ rb_imemo_mark_and_move(VALUE obj, bool reference_updating)
                 ((VALUE *)env->ep)[VM_ENV_DATA_INDEX_ENV] = rb_gc_location(env->ep[VM_ENV_DATA_INDEX_ENV]);
             }
             else {
-                VM_ENV_FLAGS_SET(env->ep, VM_ENV_FLAG_WB_REQUIRED);
+                if (!VM_ENV_FLAGS(env->ep, VM_ENV_FLAG_WB_REQUIRED)) {
+                    VM_ENV_FLAGS_SET(env->ep, VM_ENV_FLAG_WB_REQUIRED);
+                }
                 rb_gc_mark_movable( (VALUE)rb_vm_env_prev_env(env));
             }
         }
@@ -501,7 +504,10 @@ cc_table_free_i(VALUE ccs_ptr, void *data)
 void
 rb_cc_table_free(VALUE klass)
 {
-    struct rb_id_table *cc_tbl = RCLASS_CC_TBL(klass);
+    // This can be called and work well only for IClass
+    // And classext_iclass_free uses rb_cc_tbl_free now.
+    // TODO: remove this if it's ok
+    struct rb_id_table *cc_tbl = RCLASS_WRITABLE_CC_TBL(klass);
 
     if (cc_tbl) {
         rb_id_table_foreach_values(cc_tbl, cc_table_free_i, (void *)klass);
@@ -510,12 +516,19 @@ rb_cc_table_free(VALUE klass)
 }
 
 void
+rb_cc_tbl_free(struct rb_id_table *cc_tbl, VALUE klass)
+{
+    if (!cc_tbl) return;
+    rb_id_table_foreach_values(cc_tbl, cc_table_free_i, (void *)klass);
+    rb_id_table_free(cc_tbl);
+}
+
+void
 rb_imemo_free(VALUE obj)
 {
     switch (imemo_type(obj)) {
       case imemo_ast:
-        rb_ast_free((rb_ast_t *)obj);
-        RB_DEBUG_COUNTER_INC(obj_imemo_ast);
+        rb_bug("imemo_ast is obsolete");
 
         break;
       case imemo_callcache:

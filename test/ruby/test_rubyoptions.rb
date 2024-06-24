@@ -302,11 +302,8 @@ class TestRubyOptions < Test::Unit::TestCase
   end
 
   def test_parser_flag
-    warning = /compiler based on the Prism parser is currently experimental/
-
-    assert_in_out_err(%w(--parser=prism -e) + ["puts :hi"], "", %w(hi), warning)
-    assert_in_out_err(%w(--parser=prism -W:no-experimental -e) + ["puts :hi"], "", %w(hi), [])
-    assert_in_out_err(%w(--parser=prism -W:no-experimental --dump=parsetree -e _=:hi), "", /"hi"/, [])
+    assert_in_out_err(%w(--parser=prism -e) + ["puts :hi"], "", %w(hi), [])
+    assert_in_out_err(%w(--parser=prism --dump=parsetree -e _=:hi), "", /"hi"/, [])
 
     assert_in_out_err(%w(--parser=parse.y -e) + ["puts :hi"], "", %w(hi), [])
     assert_norun_with_rflag('--parser=parse.y', '--version', "")
@@ -1208,15 +1205,12 @@ class TestRubyOptions < Test::Unit::TestCase
   end
 
   def test_frozen_string_literal_debug
-    default_frozen = eval("'test'").frozen?
-
     with_debug_pat = /created at/
     wo_debug_pat = /can\'t modify frozen String: "\w+" \(FrozenError\)\n\z/
     frozen = [
       ["--enable-frozen-string-literal", true],
       ["--disable-frozen-string-literal", false],
     ]
-    frozen << [nil, false] unless default_frozen
 
     debugs = [
       ["--debug-frozen-string-literal", true],

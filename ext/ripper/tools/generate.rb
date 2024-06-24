@@ -75,6 +75,7 @@ def generate_eventids1_h(ids)
   buf << %Q[#ifndef RIPPER_EVENTIDS1\n]
   buf << %Q[#define RIPPER_EVENTIDS1\n]
   buf << %Q[\n]
+  buf << %Q[#define RIPPER_ID(n) ripper_parser_ids.id_ ## n\n]
   buf << %Q[void ripper_init_eventids1(void);\n]
   buf << %Q[void ripper_init_eventids1_table(VALUE self);\n]
   buf << %Q[\n]
@@ -84,9 +85,6 @@ def generate_eventids1_h(ids)
   end
   buf << %Q[};\n]
   buf << %Q[\n]
-  ids.each do |id, arity|
-    buf << %Q[#define ripper_id_#{id} ripper_parser_ids.id_#{id}\n]
-  end
   buf << %Q[#endif /* RIPPER_EVENTIDS1 */\n]
   buf << %Q[\n]
 end
@@ -101,7 +99,7 @@ def generate_eventids1(ids)
   buf << %Q[void\n]
   buf << %Q[ripper_init_eventids1(void)\n]
   buf << %Q[{\n]
-  buf << %Q[#define set_id1(name) ripper_id_##name = rb_intern_const("on_"#name)\n]
+  buf << %Q[#define set_id1(name) RIPPER_ID(name) = rb_intern_const("on_"#name)\n]
   ids.each do |id, arity|
     buf << %Q[    set_id1(#{id});\n]
   end
@@ -167,15 +165,13 @@ require_relative "dsl"
 def read_ids1_with_locations(path)
   h = {}
   File.open(path) {|f|
-    f.each.with_index(1) do |line, i|
+    f.each do |line|
       next if /\A\#\s*define\s+dispatch/ =~ line
       next if /ripper_dispatch/ =~ line
       line.scan(/\bdispatch(\d)\((\w+)/) do |arity, event|
         (h[event] ||= []).push [f.lineno, arity.to_i]
       end
-      if line =~ %r</\*% *ripper(?:\[(.*?)\])?: *(.*?) *%\*/>
-        gen = DSL.new($2, ($1 || "").split(","), i)
-        gen.generate
+      if gen = DSL.line?(line, f.lineno)
         gen.events.each do |event, arity|
           (h[event] ||= []).push [f.lineno, arity.to_i]
         end

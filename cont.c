@@ -2569,11 +2569,10 @@ rb_fiber_start(rb_fiber_t *fiber)
 void
 rb_threadptr_root_fiber_setup(rb_thread_t *th)
 {
-    rb_fiber_t *fiber = ruby_mimmalloc(sizeof(rb_fiber_t));
+    rb_fiber_t *fiber = ruby_mimcalloc(1, sizeof(rb_fiber_t));
     if (!fiber) {
         rb_bug("%s", strerror(errno)); /* ... is it possible to call rb_bug here? */
     }
-    MEMZERO(fiber, rb_fiber_t, 1);
     fiber->cont.type = FIBER_CONTEXT;
     fiber->cont.saved_ec.fiber_ptr = fiber;
     fiber->cont.saved_ec.thread_ptr = th;
@@ -3227,7 +3226,13 @@ rb_fiber_s_yield(int argc, VALUE *argv, VALUE klass)
 static VALUE
 fiber_raise(rb_fiber_t *fiber, VALUE exception)
 {
-    if (FIBER_SUSPENDED_P(fiber) && !fiber->yielding) {
+    if (fiber == fiber_current()) {
+        rb_exc_raise(exception);
+    }
+    else if (fiber->resuming_fiber) {
+        return fiber_raise(fiber->resuming_fiber, exception);
+    }
+    else if (FIBER_SUSPENDED_P(fiber) && !fiber->yielding) {
         return fiber_transfer_kw(fiber, -1, &exception, RB_NO_KEYWORDS);
     }
     else {

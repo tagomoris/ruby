@@ -76,8 +76,6 @@ class Gem::TestCase < Test::Unit::TestCase
 
   attr_accessor :uri # :nodoc:
 
-  @@tempdirs = []
-
   def assert_activate(expected, *specs)
     specs.each do |spec|
       case spec
@@ -285,9 +283,12 @@ class Gem::TestCase < Test::Unit::TestCase
   def setup
     @orig_hooks = {}
     @orig_env = ENV.to_hash
-    @tmp = File.expand_path("../../tmp", __dir__)
 
-    FileUtils.mkdir_p @tmp
+    top_srcdir = __dir__ + "/../.."
+    @tmp = File.expand_path(ENV.fetch("GEM_TEST_TMPDIR", "tmp"), top_srcdir)
+
+    FileUtils.mkdir_p(@tmp, mode: 0o700) # =rwx
+    @tmp = File.realpath(@tmp)
 
     @tempdir = Dir.mktmpdir("test_rubygems_", @tmp)
 
@@ -448,9 +449,7 @@ class Gem::TestCase < Test::Unit::TestCase
 
     Dir.chdir @current_dir
 
-    FileUtils.rm_rf @tempdir
-
-    restore_env
+    ENV.replace(@orig_env)
 
     Gem::ConfigFile.send :remove_const, :SYSTEM_WIDE_CONFIG_FILE
     Gem::ConfigFile.send :const_set, :SYSTEM_WIDE_CONFIG_FILE,
@@ -478,12 +477,9 @@ class Gem::TestCase < Test::Unit::TestCase
 
     @back_ui.close
 
-    refute_directory_exists @tempdir, "may be still in use"
-    ghosts = @@tempdirs.filter_map do |test_name, tempdir|
-      test_name if File.exist?(tempdir)
-    end
-    @@tempdirs << [method_name, @tempdir]
-    assert_empty ghosts
+    FileUtils.rm_rf @tempdir
+
+    refute_directory_exists @tempdir, "#{@tempdir} used by test #{method_name} is still in use"
   end
 
   def credential_setup
@@ -536,6 +532,16 @@ class Gem::TestCase < Test::Unit::TestCase
 
   def without_any_upwards_gemfiles
     ENV["BUNDLE_GEMFILE"] = File.join(@tempdir, "Gemfile")
+  end
+
+  def with_env(overrides, &block)
+    orig_env = ENV.to_h
+    ENV.replace(overrides)
+    begin
+      block.call
+    ensure
+      ENV.replace(orig_env)
+    end
   end
 
   ##
@@ -1523,23 +1529,6 @@ Also, a list:
     PUBLIC_KEY  = nil
     PUBLIC_CERT = nil
   end if Gem::HAVE_OPENSSL
-
-  private
-
-  def restore_env
-    unless Gem.win_platform?
-      ENV.replace(@orig_env)
-      return
-    end
-
-    # Fallback logic for Windows below to workaround
-    # https://bugs.ruby-lang.org/issues/16798. Can be dropped once all
-    # supported rubies include the fix for that.
-
-    ENV.clear
-
-    @orig_env.each {|k, v| ENV[k] = v }
-  end
 end
 
 # https://github.com/seattlerb/minitest/blob/13c48a03d84a2a87855a4de0c959f96800100357/lib/minitest/mock.rb#L192

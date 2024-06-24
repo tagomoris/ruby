@@ -89,6 +89,9 @@ VALUE rb_cSymbol;
  *            another string (the shared root).
  * 3:     STR_CHILLED (will be frozen in a future version)
  *            The string appears frozen but can be mutated with a warning.
+ * 4:     STR_PRECOMPUTED_HASH
+ *            The string is embedded and has its precomputed hascode stored
+ *            after the terminator.
  * 5:     STR_SHARED_ROOT
  *            Other strings may point to the contents of this string. When this
  *            flag is set, STR_SHARED must not be set.
@@ -116,6 +119,7 @@ VALUE rb_cSymbol;
  */
 
 #define RUBY_MAX_CHAR_LEN 16
+#define STR_PRECOMPUTED_HASH FL_USER4
 #define STR_SHARED_ROOT FL_USER5
 #define STR_BORROWED FL_USER6
 #define STR_TMPLOCK FL_USER7
@@ -240,6 +244,11 @@ rb_str_size_as_embedded(VALUE str)
     else {
         real_size = sizeof(struct RString);
     }
+
+    if (FL_TEST_RAW(str, STR_PRECOMPUTED_HASH)) {
+        real_size += sizeof(st_index_t);
+    }
+
     return real_size;
 }
 
@@ -257,6 +266,7 @@ static VALUE str_new(VALUE klass, const char *ptr, long len);
 static void str_make_independent_expand(VALUE str, long len, long expand, const int termlen);
 static inline void str_modifiable(VALUE str);
 static VALUE rb_str_downcase(int argc, VALUE *argv, VALUE str);
+static inline VALUE str_alloc_embed(VALUE klass, size_t capa);
 
 static inline void
 str_make_independent(VALUE str)
@@ -334,7 +344,7 @@ mustnot_wchar(VALUE str)
 
 static int fstring_cmp(VALUE a, VALUE b);
 
-static VALUE register_fstring(VALUE str, bool copy);
+static VALUE register_fstring(VALUE str, bool copy, bool precompute_hash);
 
 const struct st_hash_type rb_fstring_hash_type = {
     fstring_cmp,
@@ -343,9 +353,42 @@ const struct st_hash_type rb_fstring_hash_type = {
 
 #define BARE_STRING_P(str) (!FL_ANY_RAW(str, FL_EXIVAR) && RBASIC_CLASS(str) == rb_cString)
 
+static inline st_index_t
+str_do_hash(VALUE str)
+{
+    st_index_t h = rb_memhash((const void *)RSTRING_PTR(str), RSTRING_LEN(str));
+    int e = RSTRING_LEN(str) ? ENCODING_GET(str) : 0;
+    if (e && !is_ascii_string(str)) {
+        h = rb_hash_end(rb_hash_uint32(h, (uint32_t)e));
+    }
+    return h;
+}
+
+static VALUE
+str_precompute_hash(VALUE str)
+{
+    RUBY_ASSERT(!FL_TEST_RAW(str, STR_PRECOMPUTED_HASH));
+    RUBY_ASSERT(STR_EMBED_P(str));
+
+#if RUBY_DEBUG
+    size_t used_bytes = (RSTRING_LEN(str) + TERM_LEN(str));
+    size_t free_bytes = str_embed_capa(str) - used_bytes;
+    RUBY_ASSERT(free_bytes >= sizeof(st_index_t));
+#endif
+
+    typedef struct {char bytes[sizeof(st_index_t)];} unaligned_index;
+    union {st_index_t i; unaligned_index b;} u = {.i = str_do_hash(str)};
+    *(unaligned_index *)(RSTRING_END(str) + TERM_LEN(str)) = u.b;
+
+    FL_SET(str, STR_PRECOMPUTED_HASH);
+
+    return str;
+}
+
 struct fstr_update_arg {
     VALUE fstr;
     bool copy;
+    bool precompute_hash;
 };
 
 static int
@@ -370,8 +413,23 @@ fstr_update_callback(st_data_t *key, st_data_t *value, st_data_t data, int exist
     else {
         if (FL_TEST_RAW(str, STR_FAKESTR)) {
             if (arg->copy) {
-                VALUE new_str = str_new(rb_cString, RSTRING(str)->as.heap.ptr, RSTRING(str)->len);
-                rb_enc_copy(new_str, str);
+                VALUE new_str;
+                long len = RSTRING_LEN(str);
+                long capa = len + sizeof(st_index_t);
+                int term_len = TERM_LEN(str);
+
+                if (arg->precompute_hash && STR_EMBEDDABLE_P(capa, term_len)) {
+                    new_str = str_alloc_embed(rb_cString, capa + term_len);
+                    memcpy(RSTRING_PTR(new_str), RSTRING_PTR(str), len);
+                    STR_SET_LEN(new_str, RSTRING_LEN(str));
+                    TERM_FILL(RSTRING_END(new_str), TERM_LEN(str));
+                    rb_enc_copy(new_str, str);
+                    str_precompute_hash(new_str);
+                }
+                else {
+                    new_str = str_new(rb_cString, RSTRING(str)->as.heap.ptr, RSTRING(str)->len);
+                    rb_enc_copy(new_str, str);
+                }
                 str = new_str;
             }
             else {
@@ -379,7 +437,7 @@ fstr_update_callback(st_data_t *key, st_data_t *value, st_data_t data, int exist
                                      RSTRING(str)->len,
                                      ENCODING_GET(str));
             }
-            OBJ_FREEZE_RAW(str);
+            OBJ_FREEZE(str);
         }
         else {
             if (!OBJ_FROZEN(str) || CHILLED_STRING_P(str)) {
@@ -415,7 +473,7 @@ rb_fstring(VALUE str)
     bare = BARE_STRING_P(str);
     if (!bare) {
         if (STR_EMBED_P(str)) {
-            OBJ_FREEZE_RAW(str);
+            OBJ_FREEZE(str);
             return str;
         }
 
@@ -428,21 +486,23 @@ rb_fstring(VALUE str)
     if (!FL_TEST_RAW(str, FL_FREEZE | STR_NOFREE | STR_CHILLED))
         rb_str_resize(str, RSTRING_LEN(str));
 
-    fstr = register_fstring(str, FALSE);
+    fstr = register_fstring(str, false, false);
 
     if (!bare) {
         str_replace_shared_without_enc(str, fstr);
-        OBJ_FREEZE_RAW(str);
+        OBJ_FREEZE(str);
         return str;
     }
     return fstr;
 }
 
 static VALUE
-register_fstring(VALUE str, bool copy)
+register_fstring(VALUE str, bool copy, bool precompute_hash)
 {
-    struct fstr_update_arg args;
-    args.copy = copy;
+    struct fstr_update_arg args = {
+        .copy = copy,
+        .precompute_hash = precompute_hash
+    };
 
     RB_VM_LOCK_ENTER();
     {
@@ -500,14 +560,14 @@ VALUE
 rb_fstring_new(const char *ptr, long len)
 {
     struct RString fake_str;
-    return register_fstring(setup_fake_str(&fake_str, ptr, len, ENCINDEX_US_ASCII), FALSE);
+    return register_fstring(setup_fake_str(&fake_str, ptr, len, ENCINDEX_US_ASCII), false, false);
 }
 
 VALUE
 rb_fstring_enc_new(const char *ptr, long len, rb_encoding *enc)
 {
     struct RString fake_str;
-    return register_fstring(rb_setup_fake_str(&fake_str, ptr, len, enc), FALSE);
+    return register_fstring(rb_setup_fake_str(&fake_str, ptr, len, enc), false, false);
 }
 
 VALUE
@@ -871,6 +931,7 @@ empty_str_alloc(VALUE klass)
     RUBY_DTRACE_CREATE_HOOK(STRING, 0);
     VALUE str = str_alloc_embed(klass, 0);
     memset(RSTRING(str)->as.embed.ary, 0, str_embed_capa(str));
+    ENC_CODERANGE_SET(str, ENC_CODERANGE_7BIT);
     return str;
 }
 
@@ -1492,6 +1553,7 @@ str_new_frozen_buffer(VALUE klass, VALUE orig, int copy_encoding)
             STR_SET_EMBED(str);
             memcpy(RSTRING_PTR(str), RSTRING_PTR(orig), RSTRING_LEN(orig));
             STR_SET_LEN(str, RSTRING_LEN(orig));
+            ENC_CODERANGE_SET(str, ENC_CODERANGE(orig));
             TERM_FILL(RSTRING_END(str), TERM_LEN(orig));
         }
         else {
@@ -1834,12 +1896,6 @@ rb_ec_str_resurrect(struct rb_execution_context_struct *ec, VALUE str, bool chil
         STR_CHILL_RAW(new_str);
     }
     return new_str;
-}
-
-bool
-rb_str_chilled_p(VALUE str)
-{
-    return CHILLED_STRING_P(str);
 }
 
 /*
@@ -2453,6 +2509,9 @@ rb_check_lockedtmp(VALUE str)
 static inline void
 str_modifiable(VALUE str)
 {
+    if (CHILLED_STRING_P(str)) {
+        CHILLED_STRING_MUTATED(str);
+    }
     rb_check_lockedtmp(str);
     rb_check_frozen(str);
 }
@@ -3053,7 +3112,7 @@ rb_str_freeze(VALUE str)
 static VALUE
 str_uplus(VALUE str)
 {
-    if (OBJ_FROZEN(str)) {
+    if (OBJ_FROZEN(str) || CHILLED_STRING_P(str)) {
         return rb_str_dup(str);
     }
     else {
@@ -3136,7 +3195,11 @@ rb_str_set_len(VALUE str, long len)
     }
 
     int cr = ENC_CODERANGE(str);
-    if (cr == ENC_CODERANGE_UNKNOWN) {
+    if (len == 0) {
+        /* Empty string does not contain non-ASCII */
+        ENC_CODERANGE_SET(str, ENC_CODERANGE_7BIT);
+    }
+    else if (cr == ENC_CODERANGE_UNKNOWN) {
         /* Leave unknown. */
     }
     else if (len > RSTRING_LEN(str)) {
@@ -3374,7 +3437,7 @@ rb_enc_cr_str_buf_cat(VALUE str, const char *ptr, long len,
 
   incompatible:
     rb_raise(rb_eEncCompatError, "incompatible character encodings: %s and %s",
-             rb_enc_name(str_enc), rb_enc_name(ptr_enc));
+             rb_enc_inspect_name(str_enc), rb_enc_inspect_name(ptr_enc));
     UNREACHABLE_RETURN(Qundef);
 }
 
@@ -3532,6 +3595,22 @@ rb_str_concat_multi(int argc, VALUE *argv, VALUE str)
  *    s = 'foo'
  *    s << 33 # => "foo!"
  *
+ *  If that codepoint is not representable in the encoding of
+ *  _string_, RangeError is raised.
+ *
+ *    s = 'foo'
+ *    s.encoding              # => <Encoding:UTF-8>
+ *    s << 0x00110000         # 1114112 out of char range (RangeError)
+ *    s = 'foo'.encode('EUC-JP')
+ *    s << 0x00800080         # invalid codepoint 0x800080 in EUC-JP (RangeError)
+ *
+ *  If the encoding is US-ASCII and the codepoint is 0..0xff, _string_
+ *  is automatically promoted to ASCII-8BIT.
+ *
+ *    s = 'foo'.encode('US-ASCII')
+ *    s << 0xff
+ *    s.encoding              # => #<Encoding:BINARY (ASCII-8BIT)>
+ *
  *  Related: String#concat, which takes multiple arguments.
  */
 VALUE
@@ -3655,12 +3734,15 @@ rb_str_prepend_multi(int argc, VALUE *argv, VALUE str)
 st_index_t
 rb_str_hash(VALUE str)
 {
-    st_index_t h = rb_memhash((const void *)RSTRING_PTR(str), RSTRING_LEN(str));
-    int e = RSTRING_LEN(str) ? ENCODING_GET(str) : 0;
-    if (e && !is_ascii_string(str)) {
-        h = rb_hash_end(rb_hash_uint32(h, (uint32_t)e));
+    if (FL_TEST_RAW(str, STR_PRECOMPUTED_HASH)) {
+        typedef struct {char bytes[sizeof(st_index_t)];} unaligned_index;
+        st_index_t precomputed_hash = ((union {st_index_t i; unaligned_index b;} *)(RSTRING_END(str) + TERM_LEN(str)))->i;
+
+        RUBY_ASSERT(precomputed_hash == str_do_hash(str));
+        return precomputed_hash;
     }
-    return h;
+
+    return str_do_hash(str);
 }
 
 int
@@ -5084,7 +5166,9 @@ rb_str_upto_each(VALUE beg, VALUE end, int excl, int (*each)(VALUE, VALUE), VALU
 
         if (c > e || (excl && c == e)) return beg;
         for (;;) {
-            if ((*each)(rb_enc_str_new(&c, 1, enc), arg)) break;
+            VALUE str = rb_enc_str_new(&c, 1, enc);
+            ENC_CODERANGE_SET(str, RUBY_ENC_CODERANGE_7BIT);
+            if ((*each)(str, arg)) break;
             if (!excl && c == e) break;
             c++;
             if (excl && c == e) break;
@@ -5854,8 +5938,8 @@ rb_str_sub_bang(int argc, VALUE *argv, VALUE str)
             if (coderange_scan(p, beg0, str_enc) != ENC_CODERANGE_7BIT ||
                 coderange_scan(p+end0, len-end0, str_enc) != ENC_CODERANGE_7BIT) {
                 rb_raise(rb_eEncCompatError, "incompatible character encodings: %s and %s",
-                         rb_enc_name(str_enc),
-                         rb_enc_name(STR_ENC_GET(repl)));
+                         rb_enc_inspect_name(str_enc),
+                         rb_enc_inspect_name(STR_ENC_GET(repl)));
             }
             enc = STR_ENC_GET(repl);
         }
@@ -11120,7 +11204,7 @@ str_compat_and_valid(VALUE str, rb_encoding *enc)
         rb_encoding *e = STR_ENC_GET(str);
         if (cr == ENC_CODERANGE_7BIT ? rb_enc_mbminlen(enc) != 1 : enc != e) {
             rb_raise(rb_eEncCompatError, "incompatible character encodings: %s and %s",
-                     rb_enc_name(enc), rb_enc_name(e));
+                     rb_enc_inspect_name(enc), rb_enc_inspect_name(e));
         }
     }
     return str;
@@ -12130,7 +12214,7 @@ VALUE
 rb_interned_str(const char *ptr, long len)
 {
     struct RString fake_str;
-    return register_fstring(setup_fake_str(&fake_str, ptr, len, ENCINDEX_US_ASCII), TRUE);
+    return register_fstring(setup_fake_str(&fake_str, ptr, len, ENCINDEX_US_ASCII), true, false);
 }
 
 VALUE
@@ -12147,7 +12231,18 @@ rb_enc_interned_str(const char *ptr, long len, rb_encoding *enc)
     }
 
     struct RString fake_str;
-    return register_fstring(rb_setup_fake_str(&fake_str, ptr, len, enc), TRUE);
+    return register_fstring(rb_setup_fake_str(&fake_str, ptr, len, enc), true, false);
+}
+
+VALUE
+rb_enc_literal_str(const char *ptr, long len, rb_encoding *enc)
+{
+    if (enc != NULL && UNLIKELY(rb_enc_autoload_p(enc))) {
+        rb_enc_autoload(enc);
+    }
+
+    struct RString fake_str;
+    return register_fstring(rb_setup_fake_str(&fake_str, ptr, len, enc), true, true);
 }
 
 VALUE

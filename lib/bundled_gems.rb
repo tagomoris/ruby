@@ -28,23 +28,14 @@ module Gem::BUNDLED_GEMS
     "syslog" => "3.4.0",
     "ostruct" => "3.5.0",
     "pstore" => "3.5.0",
+    "rdoc" => "3.5.0",
+    "win32ole" => "3.5.0",
+    "fiddle" => "3.5.0",
+    "logger" => "3.5.0",
   }.freeze
 
   EXACT = {
-    "abbrev" => true,
-    "base64" => true,
-    "bigdecimal" => true,
-    "csv" => true,
-    "drb" => true,
-    "getoptlong" => true,
-    "mutex_m" => true,
-    "nkf" => true, "kconv" => "nkf",
-    "observer" => true,
-    "resolv-replace" => true,
-    "rinda" => true,
-    "syslog" => true,
-    "ostruct" => true,
-    "pstore" => true,
+    "kconv" => "nkf",
   }.freeze
 
   PREFIXED = {
@@ -95,14 +86,17 @@ module Gem::BUNDLED_GEMS
     else
       return
     end
-    EXACT[n] or PREFIXED[n = n[%r[\A[^/]+(?=/)]]] && n
+    (EXACT[n] || !!SINCE[n]) or PREFIXED[n = n[%r[\A[^/]+(?=/)]]] && n
   end
 
   def self.warning?(name, specs: nil)
     # name can be a feature name or a file path with String or Pathname
     feature = File.path(name)
-    # bootsnap expand `require "csv"` to `require "#{LIBDIR}/csv.rb"`
-    name = feature.delete_prefix(LIBDIR).chomp(".rb").tr("/", "-")
+    # bootsnap expands `require "csv"` to `require "#{LIBDIR}/csv.rb"`,
+    # and `require "syslog"` to `require "#{ARCHDIR}/syslog.so"`.
+    name = feature.delete_prefix(ARCHDIR)
+    name.delete_prefix!(LIBDIR)
+    name.tr!("/", "-")
     name.sub!(LIBEXT, "")
     return if specs.include?(name)
     _t, path = $:.resolve_feature_path(feature)
@@ -143,18 +137,8 @@ module Gem::BUNDLED_GEMS
       # Additionally, we need to skip Bootsnap and Zeitwerk if present, these
       # gems decorate Kernel#require, so they are not really the ones issuing
       # the require call users should be warned about. Those are upwards.
-      frames_to_skip = 2
-      location = nil
-      Thread.each_caller_location do |cl|
-        if frames_to_skip >= 1
-          frames_to_skip -= 1
-          next
-        end
-
-        if cl.base_label != "require"
-          location = cl.path
-          break
-        end
+      location = Thread.each_caller_location(2) do |cl|
+        break cl.path unless cl.base_label == "require"
       end
 
       if location && File.file?(location) && !location.start_with?(Gem::BUNDLED_GEMS::LIBDIR)

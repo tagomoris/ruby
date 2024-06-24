@@ -40,7 +40,9 @@ module Bundler
   SUDO_MUTEX = Thread::Mutex.new
 
   autoload :Checksum,               File.expand_path("bundler/checksum", __dir__)
+  autoload :CLI,                    File.expand_path("bundler/cli", __dir__)
   autoload :CIDetector,             File.expand_path("bundler/ci_detector", __dir__)
+  autoload :CompactIndexClient,     File.expand_path("bundler/compact_index_client", __dir__)
   autoload :Definition,             File.expand_path("bundler/definition", __dir__)
   autoload :Dependency,             File.expand_path("bundler/dependency", __dir__)
   autoload :Deprecate,              File.expand_path("bundler/deprecate", __dir__)
@@ -165,6 +167,29 @@ module Bundler
       end
     end
 
+    def auto_switch
+      self_manager.restart_with_locked_bundler_if_needed
+    end
+
+    # Automatically install dependencies if Bundler.settings[:auto_install] exists.
+    # This is set through config cmd `bundle config set --global auto_install 1`.
+    #
+    # Note that this method `nil`s out the global Definition object, so it
+    # should be called first, before you instantiate anything like an
+    # `Installer` that'll keep a reference to the old one instead.
+    def auto_install
+      return unless settings[:auto_install]
+
+      begin
+        definition.specs
+      rescue GemNotFound, GitError
+        ui.info "Automatically installing missing gems."
+        reset!
+        CLI::Install.new({}).run
+        reset!
+      end
+    end
+
     # Setups Bundler environment (see Bundler.setup) if it is not already set,
     # and loads all gems from groups specified. Unlike ::setup, can be called
     # multiple times with different groups (if they were allowed by setup).
@@ -184,6 +209,7 @@ module Bundler
     #    Bundler.require(:test)   # requires second_gem
     #
     def require(*groups)
+      load_plugins
       setup(*groups).require(*groups)
     end
 
@@ -336,7 +362,7 @@ module Bundler
     def settings
       @settings ||= Settings.new(app_config_path)
     rescue GemfileNotFound
-      @settings = Settings.new(Pathname.new(".bundle").expand_path)
+      @settings = Settings.new
     end
 
     # @return [Hash] Environment present before Bundler was activated
@@ -558,6 +584,23 @@ module Bundler
 
     def feature_flag
       @feature_flag ||= FeatureFlag.new(VERSION)
+    end
+
+    def load_plugins(definition = Bundler.definition)
+      return if defined?(@load_plugins_ran)
+
+      Bundler.rubygems.load_plugins
+
+      requested_path_gems = definition.requested_specs.select {|s| s.source.is_a?(Source::Path) }
+      path_plugin_files = requested_path_gems.map do |spec|
+        Bundler.rubygems.spec_matches_for_glob(spec, "rubygems_plugin#{Bundler.rubygems.suffix_pattern}")
+      rescue TypeError
+        error_message = "#{spec.name} #{spec.version} has an invalid gemspec"
+        raise Gem::InvalidSpecificationException, error_message
+      end.flatten
+      Bundler.rubygems.load_plugin_files(path_plugin_files)
+      Bundler.rubygems.load_env_plugins
+      @load_plugins_ran = true
     end
 
     def reset!

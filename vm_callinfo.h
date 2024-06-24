@@ -240,21 +240,6 @@ vm_ci_new_runtime_(ID mid, unsigned int flag, unsigned int argc, const struct rb
 
 #define VM_CALLINFO_NOT_UNDER_GC IMEMO_FL_USER0
 
-static inline bool
-vm_ci_markable(const struct rb_callinfo *ci)
-{
-    if (! ci) {
-        return false; /* or true? This is Qfalse... */
-    }
-    else if (vm_ci_packed_p(ci)) {
-        return true;
-    }
-    else {
-        VM_ASSERT(IMEMO_TYPE_P(ci, imemo_callinfo));
-        return ! FL_ANY_RAW((VALUE)ci, VM_CALLINFO_NOT_UNDER_GC);
-    }
-}
-
 #define VM_CI_ON_STACK(mid_, flags_, argc_, kwarg_) \
     (struct rb_callinfo) {                          \
         .flags = T_IMEMO |                          \
@@ -575,7 +560,8 @@ struct rb_class_cc_entries {
     int len;
     const struct rb_callable_method_entry_struct *cme;
     struct rb_class_cc_entries_entry {
-        const struct rb_callinfo *ci;
+        unsigned int argc;
+        unsigned int flag;
         const struct rb_callcache *cc;
     } *entries;
 };

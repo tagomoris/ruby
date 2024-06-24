@@ -56,6 +56,7 @@
 #include "ruby/internal/has/builtin.h"
 #include "ruby/internal/stdalign.h"
 #include "ruby/internal/stdbool.h"
+#include "ruby/internal/stdckdint.h"
 #include "ruby/internal/xmalloc.h"
 #include "ruby/backward/2/limits.h"
 #include "ruby/backward/2/long_long.h"
@@ -567,7 +568,10 @@ rbimpl_size_mul_overflow(size_t x, size_t y)
 {
     struct rbimpl_size_mul_overflow_tag ret = { false,  0, };
 
-#if RBIMPL_HAS_BUILTIN(__builtin_mul_overflow)
+#if defined(ckd_mul)
+    ret.left = ckd_mul(&ret.right, x, y);
+
+#elif RBIMPL_HAS_BUILTIN(__builtin_mul_overflow)
     ret.left = __builtin_mul_overflow(x, y, &ret.right);
 
 #elif defined(DSIZE_T)
@@ -639,7 +643,7 @@ rbimpl_size_mul_or_raise(size_t x, size_t y)
 static inline void *
 rb_alloc_tmp_buffer2(volatile VALUE *store, long count, size_t elsize)
 {
-    const size_t total_size = rbimpl_size_mul_or_raise(count, elsize);
+    const size_t total_size = rbimpl_size_mul_or_raise(RBIMPL_CAST((size_t)count), elsize);
     const size_t cnt = (total_size + sizeof(VALUE) - 1) / sizeof(VALUE);
     return rb_alloc_tmp_buffer_with_count(store, total_size, cnt);
 }

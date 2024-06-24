@@ -392,12 +392,11 @@ class TestSyntax < Test::Unit::TestCase
   end
 
   def test_keyword_self_reference
-    message = /circular argument reference - var/
-    assert_syntax_error("def foo(var: defined?(var)) var end", message)
-    assert_syntax_error("def foo(var: var) var end", message)
-    assert_syntax_error("def foo(var: bar(var)) var end", message)
-    assert_syntax_error("def foo(var: bar {var}) var end", message)
-    assert_syntax_error("def foo(var: (1 in ^var)); end", message)
+    assert_valid_syntax("def foo(var: defined?(var)) var end")
+    assert_valid_syntax("def foo(var: var) var end")
+    assert_valid_syntax("def foo(var: bar(var)) var end")
+    assert_valid_syntax("def foo(var: bar {var}) var end")
+    assert_valid_syntax("def foo(var: (1 in ^var)); end")
 
     o = Object.new
     assert_warn("") do
@@ -423,6 +422,9 @@ class TestSyntax < Test::Unit::TestCase
     assert_warn("") do
       o.instance_eval("proc {|var: 1| var}")
     end
+
+    o = Object.new
+    assert_nil(o.instance_eval("def foo(bar: bar) = bar; foo"))
   end
 
   def test_keyword_invalid_name
@@ -456,14 +458,13 @@ class TestSyntax < Test::Unit::TestCase
   end
 
   def test_optional_self_reference
-    message = /circular argument reference - var/
-    assert_syntax_error("def foo(var = defined?(var)) var end", message)
-    assert_syntax_error("def foo(var = var) var end", message)
-    assert_syntax_error("def foo(var = bar(var)) var end", message)
-    assert_syntax_error("def foo(var = bar {var}) var end", message)
-    assert_syntax_error("def foo(var = (def bar;end; var)) var end", message)
-    assert_syntax_error("def foo(var = (def self.bar;end; var)) var end", message)
-    assert_syntax_error("def foo(var = (1 in ^var)); end", message)
+    assert_valid_syntax("def foo(var = defined?(var)) var end")
+    assert_valid_syntax("def foo(var = var) var end")
+    assert_valid_syntax("def foo(var = bar(var)) var end")
+    assert_valid_syntax("def foo(var = bar {var}) var end")
+    assert_valid_syntax("def foo(var = (def bar;end; var)) var end")
+    assert_valid_syntax("def foo(var = (def self.bar;end; var)) var end")
+    assert_valid_syntax("def foo(var = (1 in ^var)); end")
 
     o = Object.new
     assert_warn("") do
@@ -489,6 +490,9 @@ class TestSyntax < Test::Unit::TestCase
     assert_warn("") do
       o.instance_eval("proc {|var = 1| var}")
     end
+
+    o = Object.new
+    assert_nil(o.instance_eval("def foo(bar: bar) = bar; foo"))
   end
 
   def test_warn_grouped_expression
@@ -506,10 +510,6 @@ class TestSyntax < Test::Unit::TestCase
   end
 
   def test_warn_balanced
-    warning = <<WARN
-test:1: warning: '%s' after local variable or literal is interpreted as binary operator
-test:1: warning: even though it seems like %s
-WARN
     [
      [:**, "argument prefix"],
      [:*, "argument prefix"],
@@ -523,7 +523,9 @@ WARN
       all_assertions do |a|
         ["puts 1 #{op}0", "puts :a #{op}0", "m = 1; puts m #{op}0"].each do |src|
           a.for(src) do
-            assert_warning(warning % [op, syn], src) do
+            warning = /'#{Regexp.escape(op)}' after local variable or literal is interpreted as binary operator.+?even though it seems like #{syn}/m
+
+            assert_warning(warning, src) do
               assert_valid_syntax(src, "test", verbose: true)
             end
           end
@@ -715,8 +717,8 @@ WARN
   end
 
   def test_duplicated_when
-    w = 'warning: duplicated \'when\' clause with line 3 is ignored'
-    assert_warning(/3: #{w}.+4: #{w}.+4: #{w}.+5: #{w}.+5: #{w}/m) {
+    w = ->(line) { "warning: 'when' clause on line #{line} duplicates 'when' clause on line 3 and is ignored" }
+    assert_warning(/#{w[3]}.+#{w[4]}.+#{w[4]}.+#{w[5]}.+#{w[5]}/m) {
       eval %q{
         case 1
         when 1, 1
@@ -725,7 +727,7 @@ WARN
         end
       }
     }
-    assert_warning(/#{w}/) {#/3: #{w}.+4: #{w}.+5: #{w}.+5: #{w}/m){
+    assert_warning(/#{w[3]}.+#{w[4]}.+#{w[5]}.+#{w[5]}/m) {
       a = a = 1
       eval %q{
         case 1
@@ -735,7 +737,7 @@ WARN
         end
       }
     }
-    assert_warning(/3: #{w}/m) {
+    assert_warning(/#{w[3]}/) {
       eval %q{
         case 1
         when __LINE__, __LINE__
@@ -744,7 +746,7 @@ WARN
         end
       }
     }
-    assert_warning(/3: #{w}/m) {
+    assert_warning(/#{w[3]}/) {
       eval %q{
         case 1
         when __FILE__, __FILE__
@@ -756,7 +758,7 @@ WARN
   end
 
   def test_duplicated_when_check_option
-    w = /duplicated \'when\' clause with line 3 is ignored/
+    w = /'when' clause on line 4 duplicates 'when' clause on line 3 and is ignored/
     assert_in_out_err(%[-wc], "#{<<~"begin;"}\n#{<<~'end;'}", ["Syntax OK"], w)
     begin;
       case 1
@@ -889,6 +891,16 @@ e"
     assert_dedented_heredoc(expect, result)
   end
 
+  def test_dedented_heredoc_with_leading_blank_line
+    # the blank line has six leading spaces
+    result = "      \n" \
+             "    b\n"
+    expect = "  \n" \
+             "b\n"
+    assert_dedented_heredoc(expect, result)
+  end
+
+
   def test_dedented_heredoc_with_blank_more_indented_line_escaped
     result = "    a\n" \
              "\\ \\ \\ \\ \\ \\ \n" \
@@ -996,7 +1008,7 @@ eom
   end
 
   def test_dedented_heredoc_concatenation
-    assert_equal("\n0\n1", eval("<<~0 '1'\n \n0\#{}\n0"))
+    assert_equal(" \n0\n1", eval("<<~0 '1'\n \n0\#{}\n0"))
   end
 
   def test_heredoc_mixed_encoding
@@ -1236,6 +1248,20 @@ eom
   def test_safe_call_in_massign_lhs
     assert_syntax_error("*a&.x=0", /multiple assignment destination/)
     assert_syntax_error("a&.x,=0", /multiple assignment destination/)
+  end
+
+  def test_safe_call_in_for_variable
+    assert_valid_syntax("for x&.bar in []; end")
+    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    begin;
+      foo = nil
+      for foo&.bar in [1]; end
+      assert_nil(foo)
+
+      foo = Struct.new(:bar).new
+      for foo&.bar in [1]; end
+      assert_equal(1, foo.bar)
+    end;
   end
 
   def test_no_warning_logop_literal
@@ -1577,7 +1603,7 @@ eom
   end
 
   def test_syntax_error_at_newline
-    expected = "\n        ^"
+    expected = /(\n|\| )        \^/
     assert_syntax_error("%[abcdef", expected)
     assert_syntax_error("%[abcdef\n", expected)
   end
@@ -1755,8 +1781,8 @@ eom
     assert_equal("instance ok", k.new.rescued("ok"))
 
     # Current technical limitation: cannot prepend "private" or something for command endless def
-    error = /syntax error, unexpected string literal/
-    error2 = /syntax error, unexpected local variable or method/
+    error = /(syntax error,|\^~*) unexpected string literal/
+    error2 = /(syntax error,|\^~*) unexpected local variable or method/
     assert_syntax_error('private def foo = puts "Hello"', error)
     assert_syntax_error('private def foo() = puts "Hello"', error)
     assert_syntax_error('private def foo(x) = puts x', error2)
@@ -1900,7 +1926,7 @@ eom
       ]
     end
     assert_valid_syntax('proc {def foo(_);end;it}')
-    assert_syntax_error('p { [it **2] }', /unexpected \*\*arg/)
+    assert_syntax_error('p { [it **2] }', /unexpected \*\*/)
   end
 
   def test_value_expr_in_condition

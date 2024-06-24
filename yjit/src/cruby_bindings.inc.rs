@@ -342,7 +342,8 @@ pub const BOP_AND: ruby_basic_operators = 28;
 pub const BOP_OR: ruby_basic_operators = 29;
 pub const BOP_CMP: ruby_basic_operators = 30;
 pub const BOP_DEFAULT: ruby_basic_operators = 31;
-pub const BOP_LAST_: ruby_basic_operators = 32;
+pub const BOP_PACK: ruby_basic_operators = 32;
+pub const BOP_LAST_: ruby_basic_operators = 33;
 pub type ruby_basic_operators = u32;
 pub type rb_serial_t = ::std::os::raw::c_ulonglong;
 pub const imemo_env: imemo_type = 0;
@@ -478,6 +479,16 @@ pub struct iseq_inline_iv_cache_entry {
 pub struct iseq_inline_cvar_cache_entry {
     pub entry: *mut rb_cvar_class_tbl_entry,
 }
+pub const ISEQ_TYPE_TOP: rb_iseq_type = 0;
+pub const ISEQ_TYPE_METHOD: rb_iseq_type = 1;
+pub const ISEQ_TYPE_BLOCK: rb_iseq_type = 2;
+pub const ISEQ_TYPE_CLASS: rb_iseq_type = 3;
+pub const ISEQ_TYPE_RESCUE: rb_iseq_type = 4;
+pub const ISEQ_TYPE_ENSURE: rb_iseq_type = 5;
+pub const ISEQ_TYPE_EVAL: rb_iseq_type = 6;
+pub const ISEQ_TYPE_MAIN: rb_iseq_type = 7;
+pub const ISEQ_TYPE_PLAIN: rb_iseq_type = 8;
+pub type rb_iseq_type = u32;
 pub const BUILTIN_ATTR_LEAF: rb_builtin_attr = 1;
 pub const BUILTIN_ATTR_SINGLE_NOARG_LEAF: rb_builtin_attr = 2;
 pub const BUILTIN_ATTR_INLINE_BLOCK: rb_builtin_attr = 4;
@@ -686,6 +697,8 @@ pub struct rb_call_data {
     pub ci: *const rb_callinfo,
     pub cc: *const rb_callcache,
 }
+pub const RSTRING_CHILLED: ruby_rstring_private_flags = 32768;
+pub type ruby_rstring_private_flags = u32;
 pub const RHASH_PASS_AS_KEYWORDS: ruby_rhash_flags = 8192;
 pub const RHASH_PROC_DEFAULT: ruby_rhash_flags = 16384;
 pub const RHASH_ST_TABLE_FLAG: ruby_rhash_flags = 32768;
@@ -962,6 +975,7 @@ extern "C" {
     pub static mut rb_mKernel: VALUE;
     pub static mut rb_cBasicObject: VALUE;
     pub static mut rb_cArray: VALUE;
+    pub static mut rb_cClass: VALUE;
     pub static mut rb_cFalseClass: VALUE;
     pub static mut rb_cFloat: VALUE;
     pub static mut rb_cHash: VALUE;
@@ -1013,6 +1027,7 @@ extern "C" {
     pub fn rb_attr_get(obj: VALUE, name: ID) -> VALUE;
     pub fn rb_obj_info_dump(obj: VALUE);
     pub fn rb_class_allocate_instance(klass: VALUE) -> VALUE;
+    pub fn rb_obj_equal(obj1: VALUE, obj2: VALUE) -> VALUE;
     pub fn rb_reg_new_ary(ary: VALUE, options: ::std::os::raw::c_int) -> VALUE;
     pub fn rb_ary_tmp_new_from_values(
         arg1: VALUE,
@@ -1048,7 +1063,11 @@ extern "C" {
     pub fn rb_shape_get_shape_id(obj: VALUE) -> shape_id_t;
     pub fn rb_shape_get_iv_index(shape: *mut rb_shape_t, id: ID, value: *mut attr_index_t) -> bool;
     pub fn rb_shape_obj_too_complex(obj: VALUE) -> bool;
-    pub fn rb_shape_get_next(shape: *mut rb_shape_t, obj: VALUE, id: ID) -> *mut rb_shape_t;
+    pub fn rb_shape_get_next_no_warnings(
+        shape: *mut rb_shape_t,
+        obj: VALUE,
+        id: ID,
+    ) -> *mut rb_shape_t;
     pub fn rb_shape_id(shape: *mut rb_shape_t) -> shape_id_t;
     pub fn rb_gvar_get(arg1: ID) -> VALUE;
     pub fn rb_gvar_set(arg1: ID, arg2: VALUE) -> VALUE;
@@ -1153,6 +1172,7 @@ extern "C" {
     pub fn rb_get_iseq_body_local_table_size(iseq: *const rb_iseq_t) -> ::std::os::raw::c_uint;
     pub fn rb_get_iseq_body_iseq_encoded(iseq: *const rb_iseq_t) -> *mut VALUE;
     pub fn rb_get_iseq_body_stack_max(iseq: *const rb_iseq_t) -> ::std::os::raw::c_uint;
+    pub fn rb_get_iseq_body_type(iseq: *const rb_iseq_t) -> rb_iseq_type;
     pub fn rb_get_iseq_flags_has_lead(iseq: *const rb_iseq_t) -> bool;
     pub fn rb_get_iseq_flags_has_opt(iseq: *const rb_iseq_t) -> bool;
     pub fn rb_get_iseq_flags_has_kw(iseq: *const rb_iseq_t) -> bool;

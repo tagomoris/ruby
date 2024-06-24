@@ -171,9 +171,9 @@ module RubyVM::RJIT # :nodoc: all
       me_addr == 0 ? nil : rb_method_entry_t.new(me_addr)
     end
 
-    def rb_shape_get_next(shape, obj, id)
+    def rb_shape_get_next_no_warnings(shape, obj, id)
       _shape = shape.to_i
-      shape_addr = Primitive.cexpr! 'SIZET2NUM((size_t)rb_shape_get_next((rb_shape_t *)NUM2SIZET(_shape), obj, (ID)NUM2SIZET(id)))'
+      shape_addr = Primitive.cexpr! 'SIZET2NUM((size_t)rb_shape_get_next_no_warnings((rb_shape_t *)NUM2SIZET(_shape), obj, (ID)NUM2SIZET(id)))'
       rb_shape_t.new(shape_addr)
     end
 
@@ -691,6 +691,10 @@ module RubyVM::RJIT # :nodoc: all
     Primitive.cexpr! %q{ SIZET2NUM((size_t)rb_vm_opt_newarray_min) }
   end
 
+  def C.rb_vm_opt_newarray_pack
+    Primitive.cexpr! %q{ SIZET2NUM((size_t)rb_vm_opt_newarray_pack) }
+  end
+
   def C.rb_vm_set_ivar_id
     Primitive.cexpr! %q{ SIZET2NUM((size_t)rb_vm_set_ivar_id) }
   end
@@ -1093,6 +1097,7 @@ module RubyVM::RJIT # :nodoc: all
           ruby2_keywords: [CType::BitField.new(1, 1), 9],
           anon_rest: [CType::BitField.new(1, 2), 10],
           anon_kwrest: [CType::BitField.new(1, 3), 11],
+          use_block: [CType::BitField.new(1, 4), 12],
         ), Primitive.cexpr!("OFFSETOF(((struct rb_iseq_constant_body *)NULL)->param, flags)")],
         size: [CType::Immediate.parse("unsigned int"), Primitive.cexpr!("OFFSETOF(((struct rb_iseq_constant_body *)NULL)->param, size)")],
         lead_num: [CType::Immediate.parse("int"), Primitive.cexpr!("OFFSETOF(((struct rb_iseq_constant_body *)NULL)->param, lead_num)")],
@@ -1466,6 +1471,8 @@ module RubyVM::RJIT # :nodoc: all
       calling: [CType::Pointer.new { self.rb_calling_info }, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), calling)")],
       top_self: [self.VALUE, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), top_self)")],
       top_wrapper: [self.VALUE, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), top_wrapper)")],
+      namespaces: [self.VALUE, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), namespaces)")],
+      ns: [CType::Pointer.new { self.rb_namespace_t }, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), ns)")],
       priority: [CType::Immediate.parse("int8_t"), Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), priority)")],
       running_time_us: [CType::Immediate.parse("uint32_t"), Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), running_time_us)")],
       blocking_region_buffer: [CType::Pointer.new { CType::Immediate.parse("void") }, Primitive.cexpr!("OFFSETOF((*((struct rb_thread_struct *)NULL)), blocking_region_buffer)")],
@@ -1635,6 +1642,10 @@ module RubyVM::RJIT # :nodoc: all
 
   def C.rb_calling_info
     CType::Stub.new(:rb_calling_info)
+  end
+
+  def C.rb_namespace_t
+    CType::Stub.new(:rb_namespace_t)
   end
 
   def C.rb_nativethread_lock_t

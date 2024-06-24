@@ -5,7 +5,7 @@
  */
 /*
  * This program is licensed under the same licence as Ruby.
- * (See the file 'LICENCE'.)
+ * (See the file 'COPYING'.)
  */
 #include "ossl.h"
 
@@ -1163,9 +1163,12 @@ ossl_asn1prim_to_der(VALUE self)
 	rb_jump_tag(state);
     }
     p0 = p1 = (unsigned char *)RSTRING_PTR(str);
-    i2d_ASN1_TYPE(asn1, &p0);
+    if (i2d_ASN1_TYPE(asn1, &p0) < 0) {
+        ASN1_TYPE_free(asn1);
+        ossl_raise(eASN1Error, "i2d_ASN1_TYPE");
+    }
     ASN1_TYPE_free(asn1);
-    assert(p0 - p1 == alllen);
+    ossl_str_adjust(str, p0);
 
     /* Strip header since to_der_internal() wants only the payload */
     j = ASN1_get_object((const unsigned char **)&p1, &bodylen, &tag, &tc, alllen);

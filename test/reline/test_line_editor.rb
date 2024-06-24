@@ -4,14 +4,12 @@ require 'stringio'
 
 class Reline::LineEditor
   class RenderLineDifferentialTest < Reline::TestCase
-    module TestIO
-      RESET_COLOR = "\e[0m"
-
-      def self.move_cursor_column(col)
+    class TestIO < Reline::IO
+      def move_cursor_column(col)
         @output << "[COL_#{col}]"
       end
 
-      def self.erase_after_cursor
+      def erase_after_cursor
         @output << '[ERASE]'
       end
     end
@@ -24,7 +22,7 @@ class Reline::LineEditor
       @line_editor.instance_variable_set(:@screen_size, [24, 80])
       @line_editor.instance_variable_set(:@output, @output)
       Reline.send(:remove_const, :IOGate)
-      Reline.const_set(:IOGate, TestIO)
+      Reline.const_set(:IOGate, TestIO.new)
       Reline::IOGate.instance_variable_set(:@output, @output)
     ensure
       $VERBOSE = verbose
@@ -109,6 +107,36 @@ class Reline::LineEditor
 
       assert_output '[COL_2]a[COL_3]dialog' do
         @line_editor.render_line_differential([[0, 10, 'a' * 10], [2, 6, 'dialog']], [[0, 10, 'a' * 10], [3, 6, 'dialog']])
+      end
+    end
+
+    def test_multibyte
+      base = [0, 12, '一二三一二三']
+      left = [0, 3, 'LLL']
+      right = [9, 3, 'RRR']
+      front = [3, 6, 'FFFFFF']
+      # 一 FFFFFF 三
+      # 一二三一二三
+      assert_output '[COL_2]二三一二' do
+        @line_editor.render_line_differential([base, front], [base, nil])
+      end
+
+      # LLLFFFFFF 三
+      # LLL 三一二三
+      assert_output '[COL_3] 三一二' do
+        @line_editor.render_line_differential([base, left, front], [base, left, nil])
+      end
+
+      # 一 FFFFFFRRR
+      # 一二三一 RRR
+      assert_output '[COL_2]二三一 ' do
+        @line_editor.render_line_differential([base, right, front], [base, right, nil])
+      end
+
+      # LLLFFFFFFRRR
+      # LLL 三一 RRR
+      assert_output '[COL_3] 三一 ' do
+        @line_editor.render_line_differential([base, left, right, front], [base, left, right, nil])
       end
     end
 

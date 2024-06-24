@@ -3,7 +3,7 @@ on:
   push:
     paths-ignore:
       - 'doc/**'
-      - '**/man'
+      - '**/man/*'
       - '**.md'
       - '**.rdoc'
       - '**/.document'
@@ -11,7 +11,7 @@ on:
   pull_request:
     paths-ignore:
       - 'doc/**'
-      - '**/man'
+      - '**/man/*'
       - '**.md'
       - '**.rdoc'
       - '**/.document'
@@ -91,7 +91,7 @@ jobs:
             ${{ steps.find-tools.outputs.needs }}
         if: ${{ steps.find-tools.outputs.needs != '' }}
 
-      - uses: ruby/setup-ruby@5f19ec79cedfadb78ab837f95b87734d0003c899 # v1.173.0
+      - uses: ruby/setup-ruby@ff740bc00a01b3a50fffc55a1071b1060eeae9dc # v1.180.0
         with:
           ruby-version: '3.0'
           bundler: none
@@ -115,7 +115,7 @@ jobs:
 
       - name: Install libraries with vcpkg
         run: |
-          vcpkg --triplet x64-windows install libffi libyaml openssl readline zlib
+          vcpkg --triplet x64-windows install gmp libffi libyaml openssl zlib
 
       - name: Install libraries with scoop
         run: |
@@ -123,7 +123,7 @@ jobs:
           Join-Path (Resolve-Path ~).Path "scoop\shims" >> $Env:GITHUB_PATH
         shell: pwsh
 
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           sparse-checkout-cone-mode: false
           sparse-checkout: /.github

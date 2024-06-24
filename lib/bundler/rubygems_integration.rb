@@ -156,6 +156,18 @@ module Bundler
       loaded_gem_paths.flatten
     end
 
+    def load_plugins
+      Gem.load_plugins
+    end
+
+    def load_plugin_files(plugin_files)
+      Gem.load_plugin_files(plugin_files)
+    end
+
+    def load_env_plugins
+      Gem.load_env_plugins
+    end
+
     def ui=(obj)
       Gem::DefaultUserInteraction.ui = obj
     end
@@ -469,7 +481,21 @@ module Bundler
     end
 
     def all_specs
+      SharedHelpers.major_deprecation 2, "Bundler.rubygems.all_specs has been removed in favor of Bundler.rubygems.installed_specs"
+
       Gem::Specification.stubs.map do |stub|
+        StubSpecification.from_stub(stub)
+      end
+    end
+
+    def installed_specs
+      Gem::Specification.stubs.reject(&:default_gem?).map do |stub|
+        StubSpecification.from_stub(stub)
+      end
+    end
+
+    def default_specs
+      Gem::Specification.default_stubs.map do |stub|
         StubSpecification.from_stub(stub)
       end
     end

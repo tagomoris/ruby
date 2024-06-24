@@ -386,18 +386,28 @@ warn_vsprintf(rb_encoding *enc, const char *file, int line, const char *fmt, va_
     return rb_str_cat2(str, "\n");
 }
 
-#define with_warn_vsprintf(file, line, fmt) \
+#define with_warn_vsprintf(enc, file, line, fmt) \
     VALUE str; \
     va_list args; \
     va_start(args, fmt); \
-    str = warn_vsprintf(NULL, file, line, fmt, args); \
+    str = warn_vsprintf(enc, file, line, fmt, args); \
     va_end(args);
 
 void
 rb_compile_warn(const char *file, int line, const char *fmt, ...)
 {
     if (!NIL_P(ruby_verbose)) {
-        with_warn_vsprintf(file, line, fmt) {
+        with_warn_vsprintf(NULL, file, line, fmt) {
+            rb_write_warning_str(str);
+        }
+    }
+}
+
+void
+rb_enc_compile_warn(rb_encoding *enc, const char *file, int line, const char *fmt, ...)
+{
+    if (!NIL_P(ruby_verbose)) {
+        with_warn_vsprintf(enc, file, line, fmt) {
             rb_write_warning_str(str);
         }
     }
@@ -408,7 +418,18 @@ void
 rb_compile_warning(const char *file, int line, const char *fmt, ...)
 {
     if (RTEST(ruby_verbose)) {
-        with_warn_vsprintf(file, line, fmt) {
+        with_warn_vsprintf(NULL, file, line, fmt) {
+            rb_write_warning_str(str);
+        }
+    }
+}
+
+/* rb_enc_compile_warning() reports only in verbose mode */
+void
+rb_enc_compile_warning(rb_encoding *enc, const char *file, int line, const char *fmt, ...)
+{
+    if (RTEST(ruby_verbose)) {
+        with_warn_vsprintf(enc, file, line, fmt) {
             rb_write_warning_str(str);
         }
     }
@@ -418,7 +439,7 @@ void
 rb_category_compile_warn(rb_warning_category_t category, const char *file, int line, const char *fmt, ...)
 {
     if (!NIL_P(ruby_verbose)) {
-        with_warn_vsprintf(file, line, fmt) {
+        with_warn_vsprintf(NULL, file, line, fmt) {
             rb_warn_category(str, rb_warning_category_to_name(category));
         }
     }
@@ -454,7 +475,7 @@ rb_warn(const char *fmt, ...)
 void
 rb_category_warn(rb_warning_category_t category, const char *fmt, ...)
 {
-    if (!NIL_P(ruby_verbose)) {
+    if (!NIL_P(ruby_verbose) && rb_warning_category_enabled_p(category)) {
         with_warning_string(mesg, 0, fmt) {
             rb_warn_category(mesg, rb_warning_category_to_name(category));
         }
@@ -486,7 +507,7 @@ rb_warning(const char *fmt, ...)
 void
 rb_category_warning(rb_warning_category_t category, const char *fmt, ...)
 {
-    if (RTEST(ruby_verbose)) {
+    if (RTEST(ruby_verbose) && rb_warning_category_enabled_p(category)) {
         with_warning_string(mesg, 0, fmt) {
             rb_warn_category(mesg, rb_warning_category_to_name(category));
         }
@@ -2698,8 +2719,18 @@ syntax_error_with_path(VALUE exc, VALUE path, VALUE *mesg, rb_encoding *enc)
         rb_ivar_set(exc, id_i_path, path);
     }
     else {
-        if (rb_attr_get(exc, id_i_path) != path) {
-            rb_raise(rb_eArgError, "SyntaxError#path changed");
+        VALUE old_path = rb_attr_get(exc, id_i_path);
+        if (old_path != path) {
+            if (rb_str_equal(path, old_path)) {
+                rb_raise(rb_eArgError, "SyntaxError#path changed: %+"PRIsVALUE" (%p->%p)",
+                         old_path, (void *)old_path, (void *)path);
+            }
+            else {
+                rb_raise(rb_eArgError, "SyntaxError#path changed: %+"PRIsVALUE"(%s%s)->%+"PRIsVALUE"(%s)",
+                         old_path, rb_enc_name(rb_enc_get(old_path)),
+                         (FL_TEST(old_path, RSTRING_FSTR) ? ":FSTR" : ""),
+                         path, rb_enc_name(rb_enc_get(path)));
+            }
         }
         VALUE s = *mesg = rb_attr_get(exc, idMesg);
         if (RSTRING_LEN(s) > 0 && *(RSTRING_END(s)-1) != '\n')
@@ -2710,32 +2741,47 @@ syntax_error_with_path(VALUE exc, VALUE path, VALUE *mesg, rb_encoding *enc)
 
 /*
  *  Document-module: Errno
+
+ *  When an operating system encounters an error,
+ *  it typically reports the error as an integer error code:
  *
- *  Ruby exception objects are subclasses of Exception.  However,
- *  operating systems typically report errors using plain
- *  integers. Module Errno is created dynamically to map these
- *  operating system errors to Ruby classes, with each error number
- *  generating its own subclass of SystemCallError.  As the subclass
- *  is created in module Errno, its name will start
- *  <code>Errno::</code>.
+ *    $ ls nosuch.txt
+ *    ls: cannot access 'nosuch.txt': No such file or directory
+ *    $ echo $? # Code for last error.
+ *    2
  *
- *  The names of the <code>Errno::</code> classes depend on the
- *  environment in which Ruby runs. On a typical Unix or Windows
- *  platform, there are Errno classes such as Errno::EACCES,
- *  Errno::EAGAIN, Errno::EINTR, and so on.
+ *  When the Ruby interpreter interacts with the operating system
+ *  and receives such an error code (e.g., +2+),
+ *  it maps the code to a particular Ruby exception class (e.g., +Errno::ENOENT+):
  *
- *  The integer operating system error number corresponding to a
- *  particular error is available as the class constant
- *  <code>Errno::</code><em>error</em><code>::Errno</code>.
+ *    File.open('nosuch.txt')
+ *    # => No such file or directory @ rb_sysopen - nosuch.txt (Errno::ENOENT)
  *
- *     Errno::EACCES::Errno   #=> 13
- *     Errno::EAGAIN::Errno   #=> 11
- *     Errno::EINTR::Errno    #=> 4
+ *  Each such class is:
  *
- *  The full list of operating system errors on your particular platform
- *  are available as the constants of Errno.
+ *  - A nested class in this module, +Errno+.
+ *  - A subclass of class SystemCallError.
+ *  - Associated with an error code.
  *
- *     Errno.constants   #=> :E2BIG, :EACCES, :EADDRINUSE, :EADDRNOTAVAIL, ...
+ *  Thus:
+ *
+ *    Errno::ENOENT.superclass # => SystemCallError
+ *    Errno::ENOENT::Errno     # => 2
+ *
+ *  The names of nested classes are returned by method +Errno.constants+:
+ *
+ *    Errno.constants.size         # => 158
+ *    Errno.constants.sort.take(5) # => [:E2BIG, :EACCES, :EADDRINUSE, :EADDRNOTAVAIL, :EADV]
+ *
+ *  As seen above, the error code associated with each class
+ *  is available as the value of a constant;
+ *  the value for a particular class may vary among operating systems.
+ *  If the class is not needed for the particular operating system,
+ *  the value is zero:
+ *
+ *    Errno::ENOENT::Errno      # => 2
+ *    Errno::ENOTCAPABLE::Errno # => 0
+ *
  */
 
 static st_table *syserr_tbl;
@@ -3861,11 +3907,6 @@ rb_error_frozen_object(VALUE frozen_obj)
 {
     rb_yjit_lazy_push_frame(GET_EC()->cfp->pc);
 
-    if (CHILLED_STRING_P(frozen_obj)) {
-        CHILLED_STRING_MUTATED(frozen_obj);
-        return;
-    }
-
     VALUE debug_info;
     const ID created_info = id_debug_created_info;
     VALUE mesg = rb_sprintf("can't modify frozen %"PRIsVALUE": ",
@@ -3888,14 +3929,20 @@ rb_error_frozen_object(VALUE frozen_obj)
 void
 rb_check_frozen(VALUE obj)
 {
-    rb_check_frozen_internal(obj);
+    if (RB_UNLIKELY(RB_OBJ_FROZEN(obj))) {
+        rb_error_frozen_object(obj);
+    }
+
+    if (RB_UNLIKELY(CHILLED_STRING_P(obj))) {
+        rb_str_modify(obj);
+    }
 }
 
 void
 rb_check_copyable(VALUE obj, VALUE orig)
 {
     if (!FL_ABLE(obj)) return;
-    rb_check_frozen_internal(obj);
+    rb_check_frozen(obj);
     if (!FL_ABLE(orig)) return;
 }
 

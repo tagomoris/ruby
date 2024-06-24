@@ -225,7 +225,7 @@ cmdline_options_init(ruby_cmdline_options_t *opt)
     return opt;
 }
 
-static rb_ast_t *load_file(VALUE parser, VALUE fname, VALUE f, int script,
+static VALUE load_file(VALUE parser, VALUE fname, VALUE f, int script,
                        ruby_cmdline_options_t *opt);
 static VALUE open_load_file(VALUE fname_v, int *xflag);
 static void forbid_setid(const char *, const ruby_cmdline_options_t *);
@@ -706,11 +706,11 @@ ruby_init_loadpath(void)
             p -= bindir_len;
             archlibdir = rb_str_subseq(sopath, 0, p - libpath);
             rb_str_cat_cstr(archlibdir, libdir);
-            OBJ_FREEZE_RAW(archlibdir);
+            OBJ_FREEZE(archlibdir);
         }
         else if (p - libpath >= libdir_len && !strncmp(p - libdir_len, libdir, libdir_len)) {
             archlibdir = rb_str_subseq(sopath, 0, (p2 ? p2 : p) - libpath);
-            OBJ_FREEZE_RAW(archlibdir);
+            OBJ_FREEZE(archlibdir);
             p -= libdir_len;
         }
 #ifdef ENABLE_MULTIARCH
@@ -741,7 +741,7 @@ ruby_init_loadpath(void)
 #endif
     rb_gc_register_address(&ruby_prefix_path);
     ruby_prefix_path = PREFIX_PATH();
-    OBJ_FREEZE_RAW(ruby_prefix_path);
+    OBJ_FREEZE(ruby_prefix_path);
     if (!archlibdir) archlibdir = ruby_prefix_path;
     rb_gc_register_address(&ruby_archlibdir_path);
     ruby_archlibdir_path = archlibdir;
@@ -1779,7 +1779,7 @@ ruby_opt_init(ruby_cmdline_options_t *opt)
     }
 
     if (getenv("RUBY_FREE_AT_EXIT")) {
-        rb_warn("Free at exit is experimental and may be unstable");
+        rb_category_warn(RB_WARN_CATEGORY_EXPERIMENTAL, "Free at exit is experimental and may be unstable");
         rb_free_at_exit = true;
     }
 
@@ -1802,6 +1802,8 @@ ruby_opt_init(ruby_cmdline_options_t *opt)
     memset(ruby_vm_redefined_flag, 0, sizeof(ruby_vm_redefined_flag));
 
     ruby_init_prelude();
+
+    rb_initialize_main_namespace();
 
     // Initialize JITs after prelude because JITing prelude is typically not optimal.
 #if USE_RJIT
@@ -2056,10 +2058,11 @@ show_help(const char *progname, int help)
     usage(progname, help, tty, columns);
 }
 
-static rb_ast_t *
+static VALUE
 process_script(ruby_cmdline_options_t *opt)
 {
     rb_ast_t *ast;
+    VALUE ast_value;
     VALUE parser = rb_parser_new();
     const unsigned int dump = opt->dump;
 
@@ -2079,7 +2082,7 @@ process_script(ruby_cmdline_options_t *opt)
         ruby_set_script_name(progname);
         rb_parser_set_options(parser, opt->do_print, opt->do_loop,
                               opt->do_line, opt->do_split);
-        ast = rb_parser_compile_string(parser, opt->script, opt->e_script, 1);
+        ast_value = rb_parser_compile_string(parser, opt->script, opt->e_script, 1);
     }
     else {
         VALUE f;
@@ -2087,34 +2090,14 @@ process_script(ruby_cmdline_options_t *opt)
         f = open_load_file(opt->script_name, &xflag);
         opt->xflag = xflag != 0;
         rb_parser_set_context(parser, 0, f == rb_stdin);
-        ast = load_file(parser, opt->script_name, f, 1, opt);
+        ast_value = load_file(parser, opt->script_name, f, 1, opt);
     }
+    ast = rb_ruby_ast_data_get(ast_value);
     if (!ast->body.root) {
         rb_ast_dispose(ast);
-        return NULL;
+        return Qnil;
     }
-    return ast;
-}
-
-/**
- * Call ruby_opt_init to set up the global state based on the command line
- * options, and then warn if prism is enabled and the experimental warning
- * category is enabled.
- */
-static void
-prism_opt_init(ruby_cmdline_options_t *opt)
-{
-    ruby_opt_init(opt);
-
-    if (rb_warning_category_enabled_p(RB_WARN_CATEGORY_EXPERIMENTAL)) {
-        rb_category_warn(
-            RB_WARN_CATEGORY_EXPERIMENTAL,
-            "The compiler based on the Prism parser is currently experimental "
-            "and compatibility with the compiler based on parse.y is not yet "
-            "complete. Please report any issues you find on the `ruby/prism` "
-            "issue tracker."
-        );
-    }
+    return ast_value;
 }
 
 /**
@@ -2145,25 +2128,26 @@ prism_script(ruby_cmdline_options_t *opt, pm_parse_result_t *result)
         pm_options_command_line_set(options, command_line);
         pm_options_filepath_set(options, "-");
 
-        prism_opt_init(opt);
+        ruby_opt_init(opt);
         error = pm_parse_stdin(result);
     }
     else if (opt->e_script) {
         command_line |= PM_OPTIONS_COMMAND_LINE_E;
         pm_options_command_line_set(options, command_line);
 
-        prism_opt_init(opt);
+        ruby_opt_init(opt);
+        result->node.coverage_enabled = 0;
         error = pm_parse_string(result, opt->e_script, rb_str_new2("-e"));
     }
     else {
         pm_options_command_line_set(options, command_line);
-        error = pm_load_file(result, opt->script_name);
+        error = pm_load_file(result, opt->script_name, true);
 
         // If reading the file did not error, at that point we load the command
         // line options. We do it in this order so that if the main script fails
         // to load, it doesn't require files required by -r.
         if (NIL_P(error)) {
-            prism_opt_init(opt);
+            ruby_opt_init(opt);
             error = pm_parse_file(result, opt->script_name);
         }
 
@@ -2237,6 +2221,7 @@ process_options_global_setup(const ruby_cmdline_options_t *opt, const rb_iseq_t 
 static VALUE
 process_options(int argc, char **argv, ruby_cmdline_options_t *opt)
 {
+    VALUE ast_value = Qnil;
     struct {
         rb_ast_t *ast;
         pm_parse_result_t prism;
@@ -2298,7 +2283,8 @@ process_options(int argc, char **argv, ruby_cmdline_options_t *opt)
 #endif
 #if USE_YJIT
     if (FEATURE_SET_P(opt->features, yjit)) {
-        opt->yjit = true; // set opt->yjit for Init_ruby_description() and calling rb_yjit_init()
+        bool rb_yjit_option_disable(void);
+        opt->yjit = !rb_yjit_option_disable(); // set opt->yjit for Init_ruby_description() and calling rb_yjit_init()
     }
 #endif
 
@@ -2471,7 +2457,8 @@ process_options(int argc, char **argv, ruby_cmdline_options_t *opt)
     }
 
     if (!(*rb_ruby_prism_ptr())) {
-        if (!(result.ast = process_script(opt))) return Qfalse;
+        ast_value = process_script(opt);
+        if (!(result.ast = rb_ruby_ast_data_get(ast_value))) return Qfalse;
     }
     else {
         prism_script(opt, &result.prism);
@@ -2553,7 +2540,7 @@ process_options(int argc, char **argv, ruby_cmdline_options_t *opt)
         }
         else {
             rb_ast_t *ast = result.ast;
-            iseq = rb_iseq_new_main(&ast->body, opt->script_name, path, parent, optimize);
+            iseq = rb_iseq_new_main(ast_value, opt->script_name, path, parent, optimize);
             rb_ast_dispose(ast);
         }
     }
@@ -2592,7 +2579,7 @@ struct load_file_arg {
     VALUE f;
 };
 
-VALUE rb_script_lines_for(VALUE path);
+void rb_set_script_lines_for(VALUE vparser, VALUE path);
 
 static VALUE
 load_file_internal(VALUE argp_v)
@@ -2604,7 +2591,7 @@ load_file_internal(VALUE argp_v)
     ruby_cmdline_options_t *opt = argp->opt;
     VALUE f = argp->f;
     int line_start = 1;
-    rb_ast_t *ast = 0;
+    VALUE ast_value = Qnil;
     rb_encoding *enc;
     ID set_encoding;
 
@@ -2697,18 +2684,15 @@ load_file_internal(VALUE argp_v)
     rb_parser_set_options(parser, opt->do_print, opt->do_loop,
                           opt->do_line, opt->do_split);
 
-    VALUE lines = rb_script_lines_for(orig_fname);
-    if (!NIL_P(lines)) {
-        rb_parser_set_script_lines(parser, lines);
-    }
+    rb_set_script_lines_for(parser, orig_fname);
 
     if (NIL_P(f)) {
         f = rb_str_new(0, 0);
         rb_enc_associate(f, enc);
-        return (VALUE)rb_parser_compile_string_path(parser, orig_fname, f, line_start);
+        return rb_parser_compile_string_path(parser, orig_fname, f, line_start);
     }
     rb_funcall(f, set_encoding, 2, rb_enc_from_encoding(enc), rb_str_new_cstr("-"));
-    ast = rb_parser_compile_file_path(parser, orig_fname, f, line_start);
+    ast_value = rb_parser_compile_file_path(parser, orig_fname, f, line_start);
     rb_funcall(f, set_encoding, 1, rb_parser_encoding(parser));
     if (script && rb_parser_end_seen_p(parser)) {
         /*
@@ -2726,7 +2710,7 @@ load_file_internal(VALUE argp_v)
         rb_define_global_const("DATA", f);
         argp->f = Qnil;
     }
-    return (VALUE)ast;
+    return ast_value;
 }
 
 /* disabling O_NONBLOCK, and returns 0 on success, otherwise errno */
@@ -2835,7 +2819,7 @@ restore_load_file(VALUE arg)
     return Qnil;
 }
 
-static rb_ast_t *
+static VALUE
 load_file(VALUE parser, VALUE fname, VALUE f, int script, ruby_cmdline_options_t *opt)
 {
     struct load_file_arg arg;
@@ -2844,7 +2828,7 @@ load_file(VALUE parser, VALUE fname, VALUE f, int script, ruby_cmdline_options_t
     arg.script = script;
     arg.opt = opt;
     arg.f = f;
-    return (rb_ast_t *)rb_ensure(load_file_internal, (VALUE)&arg,
+    return rb_ensure(load_file_internal, (VALUE)&arg,
                               restore_load_file, (VALUE)&arg);
 }
 
@@ -2858,10 +2842,12 @@ rb_load_file(const char *fname)
 void *
 rb_load_file_str(VALUE fname_v)
 {
-    return rb_parser_load_file(rb_parser_new(), fname_v);
+    VALUE ast_value;
+    ast_value = rb_parser_load_file(rb_parser_new(), fname_v);
+    return (void *)rb_ruby_ast_data_get(ast_value);
 }
 
-void *
+VALUE
 rb_parser_load_file(VALUE parser, VALUE fname_v)
 {
     ruby_cmdline_options_t opt;

@@ -849,8 +849,7 @@ RSpec.describe "bundle update" do
     end
 
     bundle "update", all: true
-    out.sub!("Removing foo (1.0)\n", "")
-    expect(out).to match(/Resolving dependencies\.\.\.\.*\nFetching foo 2\.0 \(was 1\.0\)\nInstalling foo 2\.0 \(was 1\.0\)\nBundle updated/)
+    expect(out.sub("Removing foo (1.0)\n", "")).to match(/Resolving dependencies\.\.\.\.*\nFetching foo 2\.0 \(was 1\.0\)\nInstalling foo 2\.0 \(was 1\.0\)\nBundle updated/)
   end
 
   it "shows error message when Gemfile.lock is not preset and gem is specified" do
@@ -1951,6 +1950,52 @@ RSpec.describe "bundle update conservative" do
       bundle "install"
 
       expect(the_bundle).to include_gems "isolated_owner 1.0.2", "isolated_dep 2.0.2", "shared_dep 5.0.1", "shared_owner_a 3.0.2", "shared_owner_b 4.0.1"
+    end
+  end
+
+  context "when Gemfile dependencies have changed" do
+    before do
+      build_repo4 do
+        build_gem "nokogiri", "1.16.4" do |s|
+          s.platform = "arm64-darwin"
+        end
+
+        build_gem "nokogiri", "1.16.4" do |s|
+          s.platform = "x86_64-linux"
+        end
+
+        build_gem "prism", "0.25.0"
+      end
+
+      gemfile <<~G
+        source "#{file_uri_for(gem_repo4)}"
+        gem "nokogiri", ">=1.16.4"
+        gem "prism", ">=0.25.0"
+      G
+
+      lockfile <<~L
+        GEM
+          remote: #{file_uri_for(gem_repo4)}/
+          specs:
+            nokogiri (1.16.4-arm64-darwin)
+            nokogiri (1.16.4-x86_64-linux)
+
+        PLATFORMS
+          arm64-darwin
+          x86_64-linux
+
+        DEPENDENCIES
+          nokogiri (>= 1.16.4)
+
+        BUNDLED WITH
+           #{Bundler::VERSION}
+      L
+    end
+
+    it "still works" do
+      simulate_platform "arm64-darwin-23" do
+        bundle "update"
+      end
     end
   end
 

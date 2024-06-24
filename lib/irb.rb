@@ -10,7 +10,7 @@ require "reline"
 
 require_relative "irb/init"
 require_relative "irb/context"
-require_relative "irb/command"
+require_relative "irb/default_commands"
 
 require_relative "irb/ruby-lex"
 require_relative "irb/statement"
@@ -311,7 +311,9 @@ require_relative "irb/pager"
 # ### Input Method
 #
 # The IRB input method determines how command input is to be read; by default,
-# the input method for a session is IRB::RelineInputMethod.
+# the input method for a session is IRB::RelineInputMethod. Unless the
+# value of the TERM environment variable is 'dumb', in which case the
+# most simplistic input method is used.
 #
 # You can set the input method by:
 #
@@ -329,7 +331,8 @@ require_relative "irb/pager"
 #         IRB::ReadlineInputMethod.
 #     *   `--nosingleline` or `--multiline` sets the input method to
 #         IRB::RelineInputMethod.
-#
+#     *   `--nosingleline` together with `--nomultiline` sets the
+#         input to IRB::StdioInputMethod.
 #
 #
 # Method `conf.use_multiline?` and its synonym `conf.use_reline` return:
@@ -656,8 +659,10 @@ require_relative "irb/pager"
 # *   `%m`: the value of `self.to_s`.
 # *   `%M`: the value of `self.inspect`.
 # *   `%l`: an indication of the type of string; one of `"`, `'`, `/`, `]`.
-# *   `*NN*i`: Indentation level.
-# *   `*NN*n`: Line number.
+# *   `%NNi`: Indentation level. NN is a 2-digit number that specifies the number
+#             of digits of the indentation level (03 will result in 001).
+# *   `%NNn`: Line number. NN is a 2-digit number that specifies the number
+#             of digits of the line number (03 will result in 001).
 # *   `%%`: Literal `%`.
 #
 #
@@ -926,8 +931,11 @@ module IRB
     # The lexer used by this irb session
     attr_accessor :scanner
 
+    attr_reader :from_binding
+
     # Creates a new irb session
-    def initialize(workspace = nil, input_method = nil)
+    def initialize(workspace = nil, input_method = nil, from_binding: false)
+      @from_binding = from_binding
       @context = Context.new(self, workspace, input_method)
       @context.workspace.load_helper_methods_to_main
       @signal_status = :IN_IRB
@@ -960,19 +968,25 @@ module IRB
       #
       # Irb#eval_input will simply return the input, and we need to pass it to the
       # debugger.
-      input = if IRB.conf[:SAVE_HISTORY] && context.io.support_history_saving?
-        # Previous IRB session's history has been saved when `Irb#run` is exited We need
-        # to make sure the saved history is not saved again by resetting the counter
-        context.io.reset_history_counter
+      input = nil
+      forced_exit = catch(:IRB_EXIT) do
+        if IRB.conf[:SAVE_HISTORY] && context.io.support_history_saving?
+          # Previous IRB session's history has been saved when `Irb#run` is exited We need
+          # to make sure the saved history is not saved again by resetting the counter
+          context.io.reset_history_counter
 
-        begin
-          eval_input
-        ensure
-          context.io.save_history
+          begin
+            input = eval_input
+          ensure
+            context.io.save_history
+          end
+        else
+          input = eval_input
         end
-      else
-        eval_input
+        false
       end
+
+      Kernel.exit if forced_exit
 
       if input&.include?("\n")
         @line_no += input.count("\n") - 1
@@ -984,6 +998,7 @@ module IRB
     def run(conf = IRB.conf)
       in_nested_session = !!conf[:MAIN_CONTEXT]
       conf[:IRB_RC].call(context) if conf[:IRB_RC]
+      prev_context = conf[:MAIN_CONTEXT]
       conf[:MAIN_CONTEXT] = context
 
       save_history = !in_nested_session && conf[:SAVE_HISTORY] && context.io.support_history_saving?
@@ -1006,6 +1021,9 @@ module IRB
           eval_input
         end
       ensure
+        # Do not restore to nil. It will cause IRB crash when used with threads.
+        IRB.conf[:MAIN_CONTEXT] = prev_context if prev_context
+
         RubyVM.keep_script_lines = keep_script_lines_backup if defined?(RubyVM.keep_script_lines)
         trap("SIGINT", prev_trap)
         conf[:AT_EXIT].each{|hook| hook.call}
@@ -1112,7 +1130,7 @@ module IRB
 
       code.force_encoding(@context.io.encoding)
       if (command, arg = parse_command(code))
-        command_class = ExtendCommandBundle.load_command(command)
+        command_class = Command.load_command(command)
         Statement::Command.new(code, command_class, arg)
       else
         is_assignment_expression = @scanner.assignment_expression?(code, local_variables: @context.local_variables)
@@ -1134,7 +1152,7 @@ module IRB
       # Check visibility
       public_method = !!Kernel.instance_method(:public_method).bind_call(@context.main, command) rescue false
       private_method = !public_method && !!Kernel.instance_method(:method).bind_call(@context.main, command) rescue false
-      if ExtendCommandBundle.execute_as_command?(command, public_method: public_method, private_method: private_method)
+      if Command.execute_as_command?(command, public_method: public_method, private_method: private_method)
         [command, arg]
       end
     end
@@ -1230,27 +1248,33 @@ module IRB
         irb_bug = true
       else
         irb_bug = false
-        # This is mostly to make IRB work nicely with Rails console's backtrace filtering, which patches WorkSpace#filter_backtrace
-        # In such use case, we want to filter the exception's backtrace before its displayed through Exception#full_message
-        # And we clone the exception object in order to avoid mutating the original exception
-        # TODO: introduce better API to expose exception backtrace externally
-        backtrace = exc.backtrace.map { |l| @context.workspace.filter_backtrace(l) }.compact
+        # To support backtrace filtering while utilizing Exception#full_message, we need to clone
+        # the exception to avoid modifying the original exception's backtrace.
         exc = exc.clone
-        exc.set_backtrace(backtrace)
+        filtered_backtrace = exc.backtrace.map { |l| @context.workspace.filter_backtrace(l) }.compact
+        backtrace_filter = IRB.conf[:BACKTRACE_FILTER]
+
+        if backtrace_filter
+          if backtrace_filter.respond_to?(:call)
+            filtered_backtrace = backtrace_filter.call(filtered_backtrace)
+          else
+            warn "IRB.conf[:BACKTRACE_FILTER] #{backtrace_filter} should respond to `call` method"
+          end
+        end
+
+        exc.set_backtrace(filtered_backtrace)
       end
 
-      if RUBY_VERSION < '3.0.0'
-        if STDOUT.tty?
-          message = exc.full_message(order: :bottom)
-          order = :bottom
-        else
-          message = exc.full_message(order: :top)
-          order = :top
+      highlight = Color.colorable?
+
+      order =
+        if RUBY_VERSION < '3.0.0'
+          STDOUT.tty? ? :bottom : :top
+        else # '3.0.0' <= RUBY_VERSION
+          :top
         end
-      else # '3.0.0' <= RUBY_VERSION
-        message = exc.full_message(order: :top)
-        order = :top
-      end
+
+      message = exc.full_message(order: order, highlight: highlight)
       message = convert_invalid_byte_sequence(message, exc.message.encoding)
       message = encode_with_invalid_byte_sequence(message, IRB.conf[:LC_MESSAGES].encoding) unless message.encoding.to_s.casecmp?(IRB.conf[:LC_MESSAGES].encoding.to_s)
       message = message.gsub(/((?:^\t.+$\n)+)/) { |m|
@@ -1455,7 +1479,7 @@ module IRB
     end
 
     def format_prompt(format, ltype, indent, line_no) # :nodoc:
-      format.gsub(/%([0-9]+)?([a-zA-Z])/) do
+      format.gsub(/%([0-9]+)?([a-zA-Z%])/) do
         case $2
         when "N"
           @context.irb_name
@@ -1488,7 +1512,7 @@ module IRB
             line_no.to_s
           end
         when "%"
-          "%"
+          "%" unless $1
         end
       end
     end
@@ -1575,7 +1599,7 @@ class Binding
     else
       # If we're not in a debugger session, create a new IRB instance with the current
       # workspace
-      binding_irb = IRB::Irb.new(workspace)
+      binding_irb = IRB::Irb.new(workspace, from_binding: true)
       binding_irb.context.irb_path = irb_path
       binding_irb.run(IRB.conf)
       binding_irb.debug_break

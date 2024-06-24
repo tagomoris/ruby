@@ -81,7 +81,7 @@ module Bundler
 
         if resolve_if_needed(options)
           ensure_specs_are_compatible!
-          load_plugins
+          Bundler.load_plugins(@definition)
           options.delete(:jobs)
         else
           options[:jobs] = 1 # to avoid the overhead of Bundler::Worker
@@ -213,20 +213,6 @@ module Bundler
       Bundler.settings.processor_count
     end
 
-    def load_plugins
-      Gem.load_plugins
-
-      requested_path_gems = @definition.requested_specs.select {|s| s.source.is_a?(Source::Path) }
-      path_plugin_files = requested_path_gems.map do |spec|
-        Bundler.rubygems.spec_matches_for_glob(spec, "rubygems_plugin#{Bundler.rubygems.suffix_pattern}")
-      rescue TypeError
-        error_message = "#{spec.name} #{spec.version} has an invalid gemspec"
-        raise Gem::InvalidSpecificationException, error_message
-      end.flatten
-      Gem.load_plugin_files(path_plugin_files)
-      Gem.load_env_plugins
-    end
-
     def ensure_specs_are_compatible!
       @definition.specs.each do |spec|
         unless spec.matches_current_ruby?
@@ -249,15 +235,15 @@ module Bundler
 
     # returns whether or not a re-resolve was needed
     def resolve_if_needed(options)
-      @definition.resolution_mode = options
+      @definition.prefer_local! if options["prefer-local"]
 
-      if !@definition.unlocking? && !options["force"] && !Bundler.settings[:inline] && Bundler.default_lockfile.file?
-        return false if @definition.nothing_changed? && !@definition.missing_specs?
+      if options["local"] || (@definition.no_resolve_needed? && !@definition.missing_specs?)
+        @definition.resolve_with_cache!
+        false
+      else
+        @definition.resolve_remotely!
+        true
       end
-
-      @definition.setup_sources_for_resolve
-
-      true
     end
 
     def lock

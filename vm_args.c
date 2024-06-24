@@ -524,10 +524,9 @@ static inline int
 ignore_keyword_hash_p(VALUE keyword_hash, const rb_iseq_t * const iseq, unsigned int * kw_flag, VALUE * converted_keyword_hash)
 {
     if (keyword_hash == Qnil) {
-        return 1;
+        goto ignore;
     }
-
-    if (!RB_TYPE_P(keyword_hash, T_HASH)) {
+    else if (!RB_TYPE_P(keyword_hash, T_HASH)) {
         keyword_hash = rb_to_hash_type(keyword_hash);
     }
     else if (UNLIKELY(ISEQ_BODY(iseq)->param.flags.anon_kwrest)) {
@@ -543,9 +542,17 @@ ignore_keyword_hash_p(VALUE keyword_hash, const rb_iseq_t * const iseq, unsigned
         keyword_hash = rb_hash_dup(keyword_hash);
     }
     *converted_keyword_hash = keyword_hash;
-    return !(ISEQ_BODY(iseq)->param.flags.has_kw) &&
-           !(ISEQ_BODY(iseq)->param.flags.has_kwrest) &&
-           RHASH_EMPTY_P(keyword_hash);
+
+    if (!(ISEQ_BODY(iseq)->param.flags.has_kw) &&
+        !(ISEQ_BODY(iseq)->param.flags.has_kwrest) &&
+        RHASH_EMPTY_P(keyword_hash)) {
+      ignore:
+        *kw_flag &= ~(VM_CALL_KW_SPLAT | VM_CALL_KW_SPLAT_MUT);
+        return 1;
+    }
+    else {
+        return 0;
+    }
 }
 
 static VALUE
@@ -684,17 +691,21 @@ setup_parameters_complex(rb_execution_context_t * const ec, const rb_iseq_t * co
             if (RB_TYPE_P(rest_last, T_HASH) && FL_TEST_RAW(rest_last, RHASH_PASS_AS_KEYWORDS)) {
                 // def f(**kw); a = [..., kw]; g(*a)
                 splat_flagged_keyword_hash = rest_last;
-                rest_last = rb_hash_dup(rest_last);
+                if (!RHASH_EMPTY_P(rest_last) || (ISEQ_BODY(iseq)->param.flags.has_kwrest)) {
+                    rest_last = rb_hash_dup(rest_last);
+                }
                 kw_flag |= VM_CALL_KW_SPLAT | VM_CALL_KW_SPLAT_MUT;
 
                 // Unset rest_dupped set by anon_rest as we may need to modify splat in this case
                 args->rest_dupped = false;
 
                 if (ignore_keyword_hash_p(rest_last, iseq, &kw_flag, &converted_keyword_hash)) {
-                    arg_rest_dup(args);
-                    rb_ary_pop(args->rest);
+                    if (ISEQ_BODY(iseq)->param.flags.has_rest || arg_setup_type != arg_setup_method) {
+                        // Only duplicate/modify splat array if it will be used
+                        arg_rest_dup(args);
+                        rb_ary_pop(args->rest);
+                    }
                     given_argc--;
-                    kw_flag &= ~(VM_CALL_KW_SPLAT | VM_CALL_KW_SPLAT_MUT);
                 }
                 else {
                     if (rest_last != converted_keyword_hash) {
@@ -725,7 +736,6 @@ setup_parameters_complex(rb_execution_context_t * const ec, const rb_iseq_t * co
             if (ignore_keyword_hash_p(last_arg, iseq, &kw_flag, &converted_keyword_hash)) {
                 args->argc--;
                 given_argc--;
-                kw_flag &= ~(VM_CALL_KW_SPLAT | VM_CALL_KW_SPLAT_MUT);
             }
             else {
                 if (!(kw_flag & VM_CALL_KW_SPLAT_MUT) && !ISEQ_BODY(iseq)->param.flags.has_kw) {
@@ -1021,7 +1031,7 @@ vm_caller_setup_arg_block(const rb_execution_context_t *ec, rb_control_frame_t *
                     VALUE callback_arg = rb_ary_hidden_new(2);
                     rb_ary_push(callback_arg, block_code);
                     rb_ary_push(callback_arg, ref);
-                    OBJ_FREEZE_RAW(callback_arg);
+                    OBJ_FREEZE(callback_arg);
                     func = rb_func_lambda_new(refine_sym_proc_call, callback_arg, 1, UNLIMITED_ARGUMENTS);
                     rb_hash_aset(ref, block_code, func);
                 }

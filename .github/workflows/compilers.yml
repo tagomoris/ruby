@@ -1,10 +1,11 @@
+# Some tests depending on this name 'Compilations' via $GITHUB_WORKFLOW. Make sure to update such tests when renaming this workflow.
 name: Compilations
 
 on:
   push:
     paths-ignore:
       - 'doc/**'
-      - '**/man'
+      - '**/man/*'
       - '**.md'
       - '**.rdoc'
       - '**/.document'
@@ -12,7 +13,7 @@ on:
   pull_request:
     paths-ignore:
       - 'doc/**'
-      - '**/man'
+      - '**/man/*'
       - '**.md'
       - '**.rdoc'
       - '**/.document'
@@ -136,7 +137,7 @@ jobs:
           - { name: '-O0', env: { optflags: '-O0 -march=x86-64 -mtune=generic' } }
 #         - { name: '-O3', env: { optflags: '-O3 -march=x86-64 -mtune=generic' }, check: true }
 
-          - { name: gmp,                  env: { append_configure: '--with-gmp' } }
+          - { name: gmp,                  env: { append_configure: '--with-gmp' }, check: true }
           - { name: jemalloc,             env: { append_configure: '--with-jemalloc' } }
           - { name: valgrind,             env: { append_configure: '--with-valgrind' } }
           - { name: 'coroutine=ucontext', env: { append_configure: '--with-coroutine=ucontext' } }
@@ -147,9 +148,9 @@ jobs:
           - { name: disable-rubygems,     env: { append_configure: '--disable-rubygems' } }
           - { name: RUBY_DEVEL,           env: { append_configure: '--enable-devel' } }
 
+          - { name: OPT_THREADED_CODE=0,            env: { cppflags: '-DOPT_THREADED_CODE=0' } }
           - { name: OPT_THREADED_CODE=1,            env: { cppflags: '-DOPT_THREADED_CODE=1' } }
           - { name: OPT_THREADED_CODE=2,            env: { cppflags: '-DOPT_THREADED_CODE=2' } }
-          - { name: OPT_THREADED_CODE=3,            env: { cppflags: '-DOPT_THREADED_CODE=3' } }
 
           - { name: NDEBUG,                         env: { cppflags: '-DNDEBUG' } }
           - { name: RUBY_DEBUG,                     env: { cppflags: '-DRUBY_DEBUG' } }
@@ -233,7 +234,7 @@ jobs:
       - run: id
         working-directory:
 
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           sparse-checkout-cone-mode: false
           sparse-checkout: /.github

@@ -504,7 +504,7 @@ module RubyVM::RJIT
           shape = C.rb_shape_get_shape_by_id(shape_id)
 
           current_capacity = shape.capacity
-          dest_shape = C.rb_shape_get_next(shape, comptime_receiver, ivar_name)
+          dest_shape = C.rb_shape_get_next_no_warnings(shape, comptime_receiver, ivar_name)
           new_shape_id = C.rb_shape_id(dest_shape)
 
           if new_shape_id == C::OBJ_TOO_COMPLEX_SHAPE_ID
@@ -5458,6 +5458,12 @@ module RubyVM::RJIT
     def jit_call_opt_struct_aref(jit, ctx, asm, cme, flags, argc, block_handler, known_recv_class, send_shift:)
       if argc != 0
         asm.incr_counter(:send_optimized_struct_aref_error)
+        return CantCompile
+      end
+
+      if c_method_tracing_currently_enabled?
+        # Don't JIT if tracing c_call or c_return
+        asm.incr_counter(:send_cfunc_tracing)
         return CantCompile
       end
 

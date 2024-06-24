@@ -700,6 +700,18 @@ class TestStringIO < Test::Unit::TestCase
     s.force_encoding(Encoding::US_ASCII)
     assert_same(s, f.read(nil, s))
     assert_string("", Encoding::UTF_8, s, bug13806)
+
+    bug20418 = '[Bug #20418] ™€®'.b
+    f = StringIO.new(bug20418)
+    s = ""
+    assert_equal(Encoding::UTF_8, s.encoding, bug20418)
+    f.read(4, s)
+    assert_equal(Encoding::UTF_8, s.encoding, bug20418)
+
+    f.rewind
+    s = ""
+    f.read(nil, s)
+    assert_equal(Encoding::ASCII_8BIT, s.encoding, bug20418)
   end
 
   def test_readpartial
@@ -711,8 +723,8 @@ class TestStringIO < Test::Unit::TestCase
     assert_equal("\u3042\u3044".force_encoding(Encoding::ASCII_8BIT), f.readpartial(f.size))
     f.rewind
     # not empty buffer
-    s = '0123456789'
-    assert_equal("\u3042\u3044".force_encoding(Encoding::ASCII_8BIT), f.readpartial(f.size, s))
+    s = '0123456789'.b
+    assert_equal("\u3042\u3044".b, f.readpartial(f.size, s))
   end
 
   def test_read_nonblock
@@ -736,8 +748,8 @@ class TestStringIO < Test::Unit::TestCase
     assert_equal("\u3042\u3044".force_encoding(Encoding::ASCII_8BIT), f.read_nonblock(f.size))
     f.rewind
     # not empty buffer
-    s = '0123456789'
-    assert_equal("\u3042\u3044".force_encoding(Encoding::ASCII_8BIT), f.read_nonblock(f.size, s))
+    s = '0123456789'.b
+    assert_equal("\u3042\u3044".b, f.read_nonblock(f.size, s))
   end
 
   def test_sysread
@@ -978,7 +990,8 @@ class TestStringIO < Test::Unit::TestCase
     assert_predicate(s.string, :ascii_only?)
   end
 
-  if eval(%{ "test".frozen? && !"test".equal?("test") }) # Ruby 3.4+ chilled strings
+  require "objspace"
+  if ObjectSpace.respond_to?(:dump) && ObjectSpace.dump(eval(%{"test"})).include?('"chilled":true') # Ruby 3.4+ chilled strings
     def test_chilled_string
       chilled_string = eval(%{""})
       io = StringIO.new(chilled_string)

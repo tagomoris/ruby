@@ -9,7 +9,7 @@
 
 #ifdef UNIVERSAL_PARSER
 
-#define rb_encoding void
+#define rb_encoding const void
 #define OnigCodePoint unsigned int
 #include "parser_st.h"
 #ifndef RUBY_RUBY_H
@@ -72,6 +72,8 @@ enum rb_parser_shareability {
     rb_parser_shareable_copy,
     rb_parser_shareable_everything,
 };
+
+typedef void* rb_parser_input_data;
 
 /*
  * AST Node
@@ -219,8 +221,16 @@ typedef struct rb_parser_ast_token {
 /*
  * Array-like object for parser
  */
+typedef void* rb_parser_ary_data;
+
+enum rb_parser_ary_data_type {
+    PARSER_ARY_DATA_AST_TOKEN,
+    PARSER_ARY_DATA_SCRIPT_LINE
+};
+
 typedef struct rb_parser_ary {
-    rb_parser_ast_token_t **data;
+    enum rb_parser_ary_data_type data_type;
+    rb_parser_ary_data *data;
     long len;  // current size
     long capa; // capacity
 } rb_parser_ary_t;
@@ -721,31 +731,22 @@ typedef struct RNode_STR {
     struct rb_parser_string *string;
 } rb_node_str_t;
 
-/* RNode_DSTR, RNode_DXSTR and RNode_DSYM should be same structure */
+/* RNode_DSTR, RNode_DXSTR, RNode_DREGX and RNode_DSYM should be same structure */
 typedef struct RNode_DSTR {
     NODE node;
 
     struct rb_parser_string *string;
     union {
         long nd_alen;
+        long nd_cflag;
         struct RNode *nd_end; /* Second dstr node has this structure. See also RNode_LIST */
     } as;
     struct RNode_LIST *nd_next;
 } rb_node_dstr_t;
 
-typedef struct RNode_XSTR {
-    NODE node;
+typedef rb_node_str_t rb_node_xstr_t;
 
-    struct rb_parser_string *string;
-} rb_node_xstr_t;
-
-typedef struct RNode_DXSTR {
-    NODE node;
-
-    struct rb_parser_string *string;
-    long nd_alen;
-    struct RNode_LIST *nd_next;
-} rb_node_dxstr_t;
+typedef rb_node_dstr_t rb_node_dxstr_t;
 
 typedef struct RNode_EVSTR {
     NODE node;
@@ -760,13 +761,7 @@ typedef struct RNode_REGX {
     int options;
 } rb_node_regx_t;
 
-typedef struct RNode_DREGX {
-    NODE node;
-
-    struct rb_parser_string *string;
-    ID nd_cflag;
-    struct RNode_LIST *nd_next;
-} rb_node_dregx_t;
+typedef rb_node_dstr_t rb_node_dregx_t;
 
 typedef struct RNode_ONCE {
     NODE node;
@@ -942,19 +937,8 @@ typedef struct RNode_DOT3 {
     struct RNode *nd_end;
 } rb_node_dot3_t;
 
-typedef struct RNode_FLIP2 {
-    NODE node;
-
-    struct RNode *nd_beg;
-    struct RNode *nd_end;
-} rb_node_flip2_t;
-
-typedef struct RNode_FLIP3 {
-    NODE node;
-
-    struct RNode *nd_beg;
-    struct RNode *nd_end;
-} rb_node_flip3_t;
+typedef rb_node_dot2_t rb_node_flip2_t;
+typedef rb_node_dot3_t rb_node_flip3_t;
 
 typedef struct RNode_SELF {
     NODE node;
@@ -996,13 +980,7 @@ typedef struct RNode_SYM {
     struct rb_parser_string *string;
 } rb_node_sym_t;
 
-typedef struct RNode_DSYM {
-    NODE node;
-
-    struct rb_parser_string *string;
-    long nd_alen;
-    struct RNode_LIST *nd_next;
-} rb_node_dsym_t;
+typedef rb_node_dstr_t rb_node_dsym_t;
 
 typedef struct RNode_ATTRASGN {
     NODE node;
@@ -1063,119 +1041,119 @@ typedef struct RNode_ERROR {
     NODE node;
 } rb_node_error_t;
 
-#define RNODE(obj)  ((struct RNode *)(obj))
+#define RNODE(obj)  ((NODE *)(obj))
 
-#define RNODE_SCOPE(node) ((struct RNode_SCOPE *)(node))
-#define RNODE_BLOCK(node) ((struct RNode_BLOCK *)(node))
-#define RNODE_IF(node) ((struct RNode_IF *)(node))
-#define RNODE_UNLESS(node) ((struct RNode_UNLESS *)(node))
-#define RNODE_CASE(node) ((struct RNode_CASE *)(node))
-#define RNODE_CASE2(node) ((struct RNode_CASE2 *)(node))
-#define RNODE_CASE3(node) ((struct RNode_CASE3 *)(node))
-#define RNODE_WHEN(node) ((struct RNode_WHEN *)(node))
-#define RNODE_IN(node) ((struct RNode_IN *)(node))
-#define RNODE_WHILE(node) ((struct RNode_WHILE *)(node))
-#define RNODE_UNTIL(node) ((struct RNode_UNTIL *)(node))
-#define RNODE_ITER(node) ((struct RNode_ITER *)(node))
-#define RNODE_FOR(node) ((struct RNode_FOR *)(node))
-#define RNODE_FOR_MASGN(node) ((struct RNode_FOR_MASGN *)(node))
-#define RNODE_BREAK(node) ((struct RNode_BREAK *)(node))
-#define RNODE_NEXT(node) ((struct RNode_NEXT *)(node))
-#define RNODE_REDO(node) ((struct RNode_REDO *)(node))
-#define RNODE_RETRY(node) ((struct RNode_RETRY *)(node))
-#define RNODE_BEGIN(node) ((struct RNode_BEGIN *)(node))
-#define RNODE_RESCUE(node) ((struct RNode_RESCUE *)(node))
-#define RNODE_RESBODY(node) ((struct RNode_RESBODY *)(node))
-#define RNODE_ENSURE(node) ((struct RNode_ENSURE *)(node))
-#define RNODE_AND(node) ((struct RNode_AND *)(node))
-#define RNODE_OR(node) ((struct RNode_OR *)(node))
-#define RNODE_MASGN(node) ((struct RNode_MASGN *)(node))
-#define RNODE_LASGN(node) ((struct RNode_LASGN *)(node))
-#define RNODE_DASGN(node) ((struct RNode_DASGN *)(node))
-#define RNODE_GASGN(node) ((struct RNode_GASGN *)(node))
-#define RNODE_IASGN(node) ((struct RNode_IASGN *)(node))
-#define RNODE_CDECL(node) ((struct RNode_CDECL *)(node))
-#define RNODE_CVASGN(node) ((struct RNode_CVASGN *)(node))
-#define RNODE_OP_ASGN1(node) ((struct RNode_OP_ASGN1 *)(node))
-#define RNODE_OP_ASGN2(node) ((struct RNode_OP_ASGN2 *)(node))
-#define RNODE_OP_ASGN_AND(node) ((struct RNode_OP_ASGN_AND *)(node))
-#define RNODE_OP_ASGN_OR(node) ((struct RNode_OP_ASGN_OR *)(node))
-#define RNODE_OP_CDECL(node) ((struct RNode_OP_CDECL *)(node))
-#define RNODE_CALL(node) ((struct RNode_CALL *)(node))
-#define RNODE_OPCALL(node) ((struct RNode_OPCALL *)(node))
-#define RNODE_FCALL(node) ((struct RNode_FCALL *)(node))
-#define RNODE_VCALL(node) ((struct RNode_VCALL *)(node))
-#define RNODE_QCALL(node) ((struct RNode_QCALL *)(node))
-#define RNODE_SUPER(node) ((struct RNode_SUPER *)(node))
-#define RNODE_ZSUPER(node) ((struct RNode_ZSUPER *)(node))
-#define RNODE_LIST(node) ((struct RNode_LIST *)(node))
-#define RNODE_ZLIST(node) ((struct RNode_ZLIST *)(node))
-#define RNODE_HASH(node) ((struct RNode_HASH *)(node))
-#define RNODE_RETURN(node) ((struct RNode_RETURN *)(node))
-#define RNODE_YIELD(node) ((struct RNode_YIELD *)(node))
-#define RNODE_LVAR(node) ((struct RNode_LVAR *)(node))
-#define RNODE_DVAR(node) ((struct RNode_DVAR *)(node))
-#define RNODE_GVAR(node) ((struct RNode_GVAR *)(node))
-#define RNODE_IVAR(node) ((struct RNode_IVAR *)(node))
-#define RNODE_CONST(node) ((struct RNode_CONST *)(node))
-#define RNODE_CVAR(node) ((struct RNode_CVAR *)(node))
-#define RNODE_NTH_REF(node) ((struct RNode_NTH_REF *)(node))
-#define RNODE_BACK_REF(node) ((struct RNode_BACK_REF *)(node))
-#define RNODE_MATCH(node) ((struct RNode_MATCH *)(node))
-#define RNODE_MATCH2(node) ((struct RNode_MATCH2 *)(node))
-#define RNODE_MATCH3(node) ((struct RNode_MATCH3 *)(node))
-#define RNODE_INTEGER(node) ((struct RNode_INTEGER *)(node))
-#define RNODE_FLOAT(node) ((struct RNode_FLOAT *)(node))
-#define RNODE_RATIONAL(node) ((struct RNode_RATIONAL *)(node))
-#define RNODE_IMAGINARY(node) ((struct RNode_IMAGINARY *)(node))
-#define RNODE_STR(node) ((struct RNode_STR *)(node))
-#define RNODE_DSTR(node) ((struct RNode_DSTR *)(node))
-#define RNODE_XSTR(node) ((struct RNode_XSTR *)(node))
-#define RNODE_DXSTR(node) ((struct RNode_DXSTR *)(node))
-#define RNODE_EVSTR(node) ((struct RNode_EVSTR *)(node))
-#define RNODE_REGX(node) ((struct RNode_REGX *)(node))
-#define RNODE_DREGX(node) ((struct RNode_DREGX *)(node))
-#define RNODE_ONCE(node) ((struct RNode_ONCE *)(node))
-#define RNODE_ARGS(node) ((struct RNode_ARGS *)(node))
-#define RNODE_ARGS_AUX(node) ((struct RNode_ARGS_AUX *)(node))
-#define RNODE_OPT_ARG(node) ((struct RNode_OPT_ARG *)(node))
-#define RNODE_KW_ARG(node) ((struct RNode_KW_ARG *)(node))
-#define RNODE_POSTARG(node) ((struct RNode_POSTARG *)(node))
-#define RNODE_ARGSCAT(node) ((struct RNode_ARGSCAT *)(node))
-#define RNODE_ARGSPUSH(node) ((struct RNode_ARGSPUSH *)(node))
-#define RNODE_SPLAT(node) ((struct RNode_SPLAT *)(node))
-#define RNODE_BLOCK_PASS(node) ((struct RNode_BLOCK_PASS *)(node))
-#define RNODE_DEFN(node) ((struct RNode_DEFN *)(node))
-#define RNODE_DEFS(node) ((struct RNode_DEFS *)(node))
-#define RNODE_ALIAS(node) ((struct RNode_ALIAS *)(node))
-#define RNODE_VALIAS(node) ((struct RNode_VALIAS *)(node))
-#define RNODE_UNDEF(node) ((struct RNode_UNDEF *)(node))
-#define RNODE_CLASS(node) ((struct RNode_CLASS *)(node))
-#define RNODE_MODULE(node) ((struct RNode_MODULE *)(node))
-#define RNODE_SCLASS(node) ((struct RNode_SCLASS *)(node))
-#define RNODE_COLON2(node) ((struct RNode_COLON2 *)(node))
-#define RNODE_COLON3(node) ((struct RNode_COLON3 *)(node))
-#define RNODE_DOT2(node) ((struct RNode_DOT2 *)(node))
-#define RNODE_DOT3(node) ((struct RNode_DOT3 *)(node))
-#define RNODE_FLIP2(node) ((struct RNode_FLIP2 *)(node))
-#define RNODE_FLIP3(node) ((struct RNode_FLIP3 *)(node))
-#define RNODE_SELF(node) ((struct RNode_SELF *)(node))
-#define RNODE_NIL(node) ((struct RNode_NIL *)(node))
-#define RNODE_TRUE(node) ((struct RNode_TRUE *)(node))
-#define RNODE_FALSE(node) ((struct RNode_FALSE *)(node))
-#define RNODE_ERRINFO(node) ((struct RNode_ERRINFO *)(node))
-#define RNODE_DEFINED(node) ((struct RNode_DEFINED *)(node))
-#define RNODE_POSTEXE(node) ((struct RNode_POSTEXE *)(node))
-#define RNODE_SYM(node) ((struct RNode_SYM *)(node))
-#define RNODE_DSYM(node) ((struct RNode_DSYM *)(node))
-#define RNODE_ATTRASGN(node) ((struct RNode_ATTRASGN *)(node))
-#define RNODE_LAMBDA(node) ((struct RNode_LAMBDA *)(node))
-#define RNODE_ARYPTN(node) ((struct RNode_ARYPTN *)(node))
-#define RNODE_HSHPTN(node) ((struct RNode_HSHPTN *)(node))
-#define RNODE_FNDPTN(node) ((struct RNode_FNDPTN *)(node))
-#define RNODE_LINE(node) ((struct RNode_LINE *)(node))
-#define RNODE_FILE(node) ((struct RNode_FILE *)(node))
-#define RNODE_ENCODING(node) ((struct RNode_ENCODING *)(node))
+#define RNODE_SCOPE(node) ((rb_node_scope_t *)(node))
+#define RNODE_BLOCK(node) ((rb_node_block_t *)(node))
+#define RNODE_IF(node) ((rb_node_if_t *)(node))
+#define RNODE_UNLESS(node) ((rb_node_unless_t *)(node))
+#define RNODE_CASE(node) ((rb_node_case_t *)(node))
+#define RNODE_CASE2(node) ((rb_node_case2_t *)(node))
+#define RNODE_CASE3(node) ((rb_node_case3_t *)(node))
+#define RNODE_WHEN(node) ((rb_node_when_t *)(node))
+#define RNODE_IN(node) ((rb_node_in_t *)(node))
+#define RNODE_WHILE(node) ((rb_node_while_t *)(node))
+#define RNODE_UNTIL(node) ((rb_node_until_t *)(node))
+#define RNODE_ITER(node) ((rb_node_iter_t *)(node))
+#define RNODE_FOR(node) ((rb_node_for_t *)(node))
+#define RNODE_FOR_MASGN(node) ((rb_node_for_masgn_t *)(node))
+#define RNODE_BREAK(node) ((rb_node_break_t *)(node))
+#define RNODE_NEXT(node) ((rb_node_next_t *)(node))
+#define RNODE_REDO(node) ((rb_node_redo_t *)(node))
+#define RNODE_RETRY(node) ((rb_node_retry_t *)(node))
+#define RNODE_BEGIN(node) ((rb_node_begin_t *)(node))
+#define RNODE_RESCUE(node) ((rb_node_rescue_t *)(node))
+#define RNODE_RESBODY(node) ((rb_node_resbody_t *)(node))
+#define RNODE_ENSURE(node) ((rb_node_ensure_t *)(node))
+#define RNODE_AND(node) ((rb_node_and_t *)(node))
+#define RNODE_OR(node) ((rb_node_or_t *)(node))
+#define RNODE_MASGN(node) ((rb_node_masgn_t *)(node))
+#define RNODE_LASGN(node) ((rb_node_lasgn_t *)(node))
+#define RNODE_DASGN(node) ((rb_node_dasgn_t *)(node))
+#define RNODE_GASGN(node) ((rb_node_gasgn_t *)(node))
+#define RNODE_IASGN(node) ((rb_node_iasgn_t *)(node))
+#define RNODE_CDECL(node) ((rb_node_cdecl_t *)(node))
+#define RNODE_CVASGN(node) ((rb_node_cvasgn_t *)(node))
+#define RNODE_OP_ASGN1(node) ((rb_node_op_asgn1_t *)(node))
+#define RNODE_OP_ASGN2(node) ((rb_node_op_asgn2_t *)(node))
+#define RNODE_OP_ASGN_AND(node) ((rb_node_op_asgn_and_t *)(node))
+#define RNODE_OP_ASGN_OR(node) ((rb_node_op_asgn_or_t *)(node))
+#define RNODE_OP_CDECL(node) ((rb_node_op_cdecl_t *)(node))
+#define RNODE_CALL(node) ((rb_node_call_t *)(node))
+#define RNODE_OPCALL(node) ((rb_node_opcall_t *)(node))
+#define RNODE_FCALL(node) ((rb_node_fcall_t *)(node))
+#define RNODE_VCALL(node) ((rb_node_vcall_t *)(node))
+#define RNODE_QCALL(node) ((rb_node_qcall_t *)(node))
+#define RNODE_SUPER(node) ((rb_node_super_t *)(node))
+#define RNODE_ZSUPER(node) ((rb_node_zsuper_t *)(node))
+#define RNODE_LIST(node) ((rb_node_list_t *)(node))
+#define RNODE_ZLIST(node) ((rb_node_zlist_t *)(node))
+#define RNODE_HASH(node) ((rb_node_hash_t *)(node))
+#define RNODE_RETURN(node) ((rb_node_return_t *)(node))
+#define RNODE_YIELD(node) ((rb_node_yield_t *)(node))
+#define RNODE_LVAR(node) ((rb_node_lvar_t *)(node))
+#define RNODE_DVAR(node) ((rb_node_dvar_t *)(node))
+#define RNODE_GVAR(node) ((rb_node_gvar_t *)(node))
+#define RNODE_IVAR(node) ((rb_node_ivar_t *)(node))
+#define RNODE_CONST(node) ((rb_node_const_t *)(node))
+#define RNODE_CVAR(node) ((rb_node_cvar_t *)(node))
+#define RNODE_NTH_REF(node) ((rb_node_nth_ref_t *)(node))
+#define RNODE_BACK_REF(node) ((rb_node_back_ref_t *)(node))
+#define RNODE_MATCH(node) ((rb_node_match_t *)(node))
+#define RNODE_MATCH2(node) ((rb_node_match2_t *)(node))
+#define RNODE_MATCH3(node) ((rb_node_match3_t *)(node))
+#define RNODE_INTEGER(node) ((rb_node_integer_t *)(node))
+#define RNODE_FLOAT(node) ((rb_node_float_t *)(node))
+#define RNODE_RATIONAL(node) ((rb_node_rational_t *)(node))
+#define RNODE_IMAGINARY(node) ((rb_node_imaginary_t *)(node))
+#define RNODE_STR(node) ((rb_node_str_t *)(node))
+#define RNODE_DSTR(node) ((rb_node_dstr_t *)(node))
+#define RNODE_XSTR(node) ((rb_node_xstr_t *)(node))
+#define RNODE_DXSTR(node) ((rb_node_dxstr_t *)(node))
+#define RNODE_EVSTR(node) ((rb_node_evstr_t *)(node))
+#define RNODE_REGX(node) ((rb_node_regx_t *)(node))
+#define RNODE_DREGX(node) ((rb_node_dregx_t *)(node))
+#define RNODE_ONCE(node) ((rb_node_once_t *)(node))
+#define RNODE_ARGS(node) ((rb_node_args_t *)(node))
+#define RNODE_ARGS_AUX(node) ((rb_node_args_aux_t *)(node))
+#define RNODE_OPT_ARG(node) ((rb_node_opt_arg_t *)(node))
+#define RNODE_KW_ARG(node) ((rb_node_kw_arg_t *)(node))
+#define RNODE_POSTARG(node) ((rb_node_postarg_t *)(node))
+#define RNODE_ARGSCAT(node) ((rb_node_argscat_t *)(node))
+#define RNODE_ARGSPUSH(node) ((rb_node_argspush_t *)(node))
+#define RNODE_SPLAT(node) ((rb_node_splat_t *)(node))
+#define RNODE_BLOCK_PASS(node) ((rb_node_block_pass_t *)(node))
+#define RNODE_DEFN(node) ((rb_node_defn_t *)(node))
+#define RNODE_DEFS(node) ((rb_node_defs_t *)(node))
+#define RNODE_ALIAS(node) ((rb_node_alias_t *)(node))
+#define RNODE_VALIAS(node) ((rb_node_valias_t *)(node))
+#define RNODE_UNDEF(node) ((rb_node_undef_t *)(node))
+#define RNODE_CLASS(node) ((rb_node_class_t *)(node))
+#define RNODE_MODULE(node) ((rb_node_module_t *)(node))
+#define RNODE_SCLASS(node) ((rb_node_sclass_t *)(node))
+#define RNODE_COLON2(node) ((rb_node_colon2_t *)(node))
+#define RNODE_COLON3(node) ((rb_node_colon3_t *)(node))
+#define RNODE_DOT2(node) ((rb_node_dot2_t *)(node))
+#define RNODE_DOT3(node) ((rb_node_dot3_t *)(node))
+#define RNODE_FLIP2(node) ((rb_node_flip2_t *)(node))
+#define RNODE_FLIP3(node) ((rb_node_flip3_t *)(node))
+#define RNODE_SELF(node) ((rb_node_self_t *)(node))
+#define RNODE_NIL(node) ((rb_node_nil_t *)(node))
+#define RNODE_TRUE(node) ((rb_node_true_t *)(node))
+#define RNODE_FALSE(node) ((rb_node_false_t *)(node))
+#define RNODE_ERRINFO(node) ((rb_node_errinfo_t *)(node))
+#define RNODE_DEFINED(node) ((rb_node_defined_t *)(node))
+#define RNODE_POSTEXE(node) ((rb_node_postexe_t *)(node))
+#define RNODE_SYM(node) ((rb_node_sym_t *)(node))
+#define RNODE_DSYM(node) ((rb_node_dsym_t *)(node))
+#define RNODE_ATTRASGN(node) ((rb_node_attrasgn_t *)(node))
+#define RNODE_LAMBDA(node) ((rb_node_lambda_t *)(node))
+#define RNODE_ARYPTN(node) ((rb_node_aryptn_t *)(node))
+#define RNODE_HSHPTN(node) ((rb_node_hshptn_t *)(node))
+#define RNODE_FNDPTN(node) ((rb_node_fndptn_t *)(node))
+#define RNODE_LINE(node) ((rb_node_line_t *)(node))
+#define RNODE_FILE(node) ((rb_node_file_t *)(node))
+#define RNODE_ENCODING(node) ((rb_node_encoding_t *)(node))
 
 /* FL     : 0..4: T_TYPES, 5: KEEP_WB, 6: PROMOTED, 7: FINALIZE, 8: UNUSED, 9: UNUSED, 10: EXIVAR, 11: FREEZE */
 /* NODE_FL: 0..4: UNUSED,  5: UNUSED,  6: UNUSED,   7: NODE_FL_NEWLINE,
@@ -1198,20 +1176,24 @@ typedef struct RNode_ERROR {
     (n)->flags=(((n)->flags&~NODE_TYPEMASK)|((((unsigned long)(t))<<NODE_TYPESHIFT)&NODE_TYPEMASK))
 
 typedef struct node_buffer_struct node_buffer_t;
-/* T_IMEMO/ast */
+
+#ifdef UNIVERSAL_PARSER
+typedef struct rb_parser_config_struct rb_parser_config_t;
+#endif
+
 typedef struct rb_ast_body_struct {
     const NODE *root;
-    VALUE script_lines;
-    // script_lines is either:
-    // - a Fixnum that represents the line count of the original source, or
-    // - an Array that contains the lines of the original source
+    rb_parser_ary_t *script_lines;
+    int line_count;
     signed int frozen_string_literal:2; /* -1: not specified, 0: false, 1: true */
     signed int coverage_enabled:2; /* -1: not specified, 0: false, 1: true */
 } rb_ast_body_t;
 typedef struct rb_ast_struct {
-    VALUE flags;
     node_buffer_t *node_buffer;
     rb_ast_body_t body;
+#ifdef UNIVERSAL_PARSER
+    const rb_parser_config_t *config;
+#endif
 } rb_ast_t;
 
 
@@ -1241,9 +1223,6 @@ typedef struct rb_parser_config_struct {
     void *(*nonempty_memcpy)(void *dest, const void *src, size_t t, size_t n);
     void *(*xmalloc_mul_add)(size_t x, size_t y, size_t z);
 
-    /* imemo */
-    rb_ast_t *(*ast_new)(VALUE nb);
-
     // VALUE rb_suppress_tracing(VALUE (*func)(VALUE), VALUE arg);
     VALUE (*compile_callback)(VALUE (*func)(VALUE), VALUE arg);
     NODE *(*reg_named_capture_assign)(struct parser_params* p, VALUE regexp, const rb_code_location_t *loc);
@@ -1256,9 +1235,6 @@ typedef struct rb_parser_config_struct {
     VALUE (*ary_push)(VALUE ary, VALUE elem);
     VALUE (*ary_new_from_args)(long n, ...);
     VALUE (*ary_unshift)(VALUE ary, VALUE item);
-    void (*ary_modify)(VALUE ary);
-    long (*array_len)(VALUE a);
-    VALUE (*array_aref)(VALUE, long);
 
     /* Symbol */
     ID (*make_temporary_id)(size_t n);
@@ -1282,10 +1258,6 @@ typedef struct rb_parser_config_struct {
     RBIMPL_ATTR_FORMAT(RBIMPL_PRINTF_FORMAT, 2, 3)
     VALUE (*str_catf)(VALUE str, const char *format, ...);
     VALUE (*str_cat_cstr)(VALUE str, const char *ptr);
-    VALUE (*str_subseq)(VALUE str, long beg, long len);
-    VALUE (*str_new_frozen)(VALUE orig);
-    VALUE (*str_buf_new)(long capa);
-    VALUE (*str_buf_cat)(VALUE, const char*, long);
     void (*str_modify)(VALUE str);
     void (*str_set_len)(VALUE str, long len);
     VALUE (*str_cat)(VALUE str, const char *ptr, long len);
@@ -1295,17 +1267,13 @@ typedef struct rb_parser_config_struct {
     VALUE (*str_to_interned_str)(VALUE);
     int (*is_ascii_string)(VALUE str);
     VALUE (*enc_str_new)(const char *ptr, long len, rb_encoding *enc);
-    VALUE (*enc_str_buf_cat)(VALUE str, const char *ptr, long len, rb_encoding *enc);
-    VALUE (*str_buf_append)(VALUE str, VALUE str2);
     RBIMPL_ATTR_FORMAT(RBIMPL_PRINTF_FORMAT, 2, 0)
     VALUE (*str_vcatf)(VALUE str, const char *fmt, va_list ap);
-    char *(*string_value_cstr)(volatile VALUE *ptr);
     RBIMPL_ATTR_FORMAT(RBIMPL_PRINTF_FORMAT, 1, 2)
     VALUE (*rb_sprintf)(const char *format, ...);
     char *(*rstring_ptr)(VALUE str);
     char *(*rstring_end)(VALUE str);
     long (*rstring_len)(VALUE str);
-    VALUE (*filesystem_str_new_cstr)(const char *ptr);
     VALUE (*obj_as_string)(VALUE);
 
     /* Numeric */
@@ -1314,11 +1282,9 @@ typedef struct rb_parser_config_struct {
     /* IO */
     int (*stderr_tty_p)(void);
     void (*write_error_str)(VALUE mesg);
-    VALUE (*default_rs)(void);
     VALUE (*io_write)(VALUE io, VALUE str);
     VALUE (*io_flush)(VALUE io);
     VALUE (*io_puts)(int argc, const VALUE *argv, VALUE out);
-    VALUE (*io_gets_internal)(VALUE io);
 
     /* IO (Ractor) */
     VALUE (*debug_output_stdout)(void);
@@ -1341,11 +1307,7 @@ typedef struct rb_parser_config_struct {
     int (*enc_mbcput)(unsigned int c, void *buf, rb_encoding *enc);
     int (*enc_find_index)(const char *name);
     rb_encoding *(*enc_from_index)(int idx);
-    VALUE (*enc_associate_index)(VALUE obj, int encindex);
     int (*enc_isspace)(OnigCodePoint c, rb_encoding *enc);
-    rb_encoding *(*enc_compatible)(VALUE str1, VALUE str2);
-    VALUE (*enc_from_encoding)(rb_encoding *enc);
-    int (*encoding_is_ascii8bit)(VALUE obj);
     rb_encoding *(*usascii_encoding)(void);
     int enc_coderange_broken;
     int (*enc_mbminlen)(rb_encoding *enc);
@@ -1374,10 +1336,8 @@ typedef struct rb_parser_config_struct {
     /* GC */
     void (*sized_xfree)(void *x, size_t size);
     void *(*sized_realloc_n)(void *ptr, size_t new_count, size_t element_size, size_t old_count);
-    VALUE (*obj_write)(VALUE, VALUE *, VALUE);
     void (*gc_guard)(VALUE);
     void (*gc_mark)(VALUE);
-    void (*gc_mark_and_move)(VALUE *ptr);
 
     /* Re */
     VALUE (*reg_compile)(VALUE str, int options, const char *sourcefile, int sourceline);
@@ -1402,11 +1362,9 @@ typedef struct rb_parser_config_struct {
     double (*strtod)(const char *s00, char **se);
 
     /* Misc */
-    VALUE (*rbool)(VALUE);
     int (*rtest)(VALUE obj);
     int (*nil_p)(VALUE obj);
     VALUE qnil;
-    VALUE qtrue;
     VALUE qfalse;
     VALUE (*eArgError)(void);
     int (*long2int)(long);
@@ -1424,7 +1382,6 @@ typedef struct rb_parser_config_struct {
 
 RUBY_SYMBOL_EXPORT_BEGIN
 void rb_ruby_parser_free(void *ptr);
-rb_ast_t* rb_ruby_parser_compile_string(rb_parser_t *p, const char *f, VALUE s, int line);
 
 #ifdef UNIVERSAL_PARSER
 rb_parser_t *rb_ruby_parser_allocate(const rb_parser_config_t *config);

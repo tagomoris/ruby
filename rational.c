@@ -22,9 +22,6 @@
 # define USE_GMP 0
 #endif
 #endif
-#if USE_GMP
-#include <gmp.h>
-#endif
 
 #include "id.h"
 #include "internal.h"
@@ -35,6 +32,15 @@
 #include "internal/object.h"
 #include "internal/rational.h"
 #include "ruby_assert.h"
+
+#if USE_GMP
+RBIMPL_WARNING_PUSH()
+# ifdef _MSC_VER
+RBIMPL_WARNING_IGNORED(4146) /* for mpn_neg() */
+# endif
+# include <gmp.h>
+RBIMPL_WARNING_POP()
+#endif
 
 #define ZERO INT2FIX(0)
 #define ONE INT2FIX(1)
@@ -418,7 +424,7 @@ nurat_s_new_internal(VALUE klass, VALUE num, VALUE den)
 
     RATIONAL_SET_NUM((VALUE)obj, num);
     RATIONAL_SET_DEN((VALUE)obj, den);
-    OBJ_FREEZE_RAW((VALUE)obj);
+    OBJ_FREEZE((VALUE)obj);
 
     return (VALUE)obj;
 }
@@ -1847,7 +1853,7 @@ nurat_loader(VALUE self, VALUE a)
     nurat_canonicalize(&num, &den);
     RATIONAL_SET_NUM((VALUE)dat, num);
     RATIONAL_SET_DEN((VALUE)dat, den);
-    OBJ_FREEZE_RAW(self);
+    OBJ_FREEZE(self);
 
     return self;
 }

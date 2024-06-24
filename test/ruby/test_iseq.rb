@@ -167,6 +167,14 @@ class TestISeq < Test::Unit::TestCase
     end
   end
 
+  def test_ractor_shareable_value_frozen_core
+    iseq = RubyVM::InstructionSequence.compile(<<~'RUBY')
+      # shareable_constant_value: literal
+      REGEX = /#{}/ # [Bug #20569]
+    RUBY
+    assert_includes iseq.to_binary, "REGEX".b
+  end
+
   def test_disasm_encoding
     src = +"\u{3042} = 1; \u{3042}; \u{3043}"
     asm = compile(src).disasm
@@ -347,11 +355,17 @@ class TestISeq < Test::Unit::TestCase
       end
     end
     assert_equal([m1, e1.message], [m2, e2.message], feature11951)
-    message = e1.message.each_line
-    message.with_index(1) do |line, i|
-      next if /^ / =~ line
-      assert_send([line, :start_with?, __FILE__],
-                  proc {message.map {|l, j| (i == j ? ">" : " ") + l}.join("")})
+
+    if e1.message.lines[0] == "#{__FILE__}:#{line}: syntax errors found\n"
+      # Prism lays out the error messages in line with the source, so the
+      # following assertions do not make sense in that context.
+    else
+      message = e1.message.each_line
+      message.with_index(1) do |line, i|
+        next if /^ / =~ line
+        assert_send([line, :start_with?, __FILE__],
+                    proc {message.map {|l, j| (i == j ? ">" : " ") + l}.join("")})
+      end
     end
   end
 
@@ -463,7 +477,7 @@ class TestISeq < Test::Unit::TestCase
                   ["<class:C>@1",
                     ["bar@10", ["block in bar@11",
                             ["block (2 levels) in bar@12"]]],
-                    ["foo@2", ["ensure in foo@2"],
+                    ["foo@2", ["ensure in foo@7"],
                               ["rescue in foo@4"]]],
                   ["<class:D>@17"]]
 
@@ -496,7 +510,7 @@ class TestISeq < Test::Unit::TestCase
                                   [4, :line],
                                   [7, :line],
                                   [9, :return]]],
-                       [["ensure in foo@2", [[7, :line]]]],
+                       [["ensure in foo@7", [[7, :line]]]],
                        [["rescue in foo@4", [[5, :line],
                                              [5, :rescue]]]]]],
                    [["<class:D>@17", [[17, :class],
@@ -827,9 +841,42 @@ class TestISeq < Test::Unit::TestCase
     end
   end
 
+  def block_using_method
+    yield
+  end
+
+  def block_unused_method
+  end
+
+  def test_unused_param
+    a = RubyVM::InstructionSequence.of(method(:block_using_method)).to_a
+
+    omit 'TODO: Prism' if a.dig(4, :parser) != :"parse.y"
+
+    assert_equal true, a.dig(11, :use_block)
+
+    b = RubyVM::InstructionSequence.of(method(:block_unused_method)).to_a
+    assert_equal nil, b.dig(11, :use_block)
+  end
+
   def test_compile_prism_with_invalid_object_type
     assert_raise(TypeError) do
       RubyVM::InstructionSequence.compile_prism(Object.new)
+    end
+  end
+
+  def test_load_from_binary_only_accepts_string_param
+    assert_raise(TypeError) do
+      var_0 = 0
+      RubyVM::InstructionSequence.load_from_binary(var_0)
+    end
+  end
+
+  def test_while_in_until_condition
+    assert_in_out_err(["--dump=i", "-e", "until while 1; end; end"]) do |stdout, stderr, status|
+      assert_include(stdout.shift, "== disasm:")
+      assert_include(stdout.pop, "leave")
+      assert_predicate(status, :success?)
     end
   end
 end

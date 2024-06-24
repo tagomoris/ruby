@@ -586,7 +586,7 @@ wmap_size(VALUE self)
  * the key and the object as the value. This means that the key is of the type
  * `VALUE *` while the value is of the type `VALUE`.
  *
- * The object is not not directly stored as keys in the table because
+ * The object is not directly stored as keys in the table because
  * `rb_gc_mark_weak` requires a pointer to the memory location to overwrite
  * when the object is reclaimed. Using a pointer into the ST table entry is not
  * safe because the pointer can change when the ST table is resized.
@@ -985,7 +985,7 @@ wkmap_inspect(VALUE self)
  *
  *  Keys in the map are compared by identity.
  *
- *     m = ObjectSpace::WeekMap.new
+ *     m = ObjectSpace::WeakMap.new
  *     key1 = "foo"
  *     val1 = Object.new
  *     m[key1] = val1
@@ -1041,13 +1041,13 @@ wkmap_inspect(VALUE self)
  *
  *       val = nil
  *       GC.start
- *       # There is no more references to `val`, yet the pair isn't
+ *       # There are no more references to `val`, yet the pair isn't
  *       # garbage-collected.
  *       map["name"] #=> 2023-12-07 00:00:00 +0200
  *
  *       key = nil
  *       GC.start
- *       # There is no more references to `key`, key and value are
+ *       # There are no more references to `key`, key and value are
  *       # garbage-collected.
  *       map["name"] #=> nil
  *

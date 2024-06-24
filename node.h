@@ -39,9 +39,6 @@ struct node_buffer_struct {
     // - location info
     // Array, whose entry is array
     rb_parser_ary_t *tokens;
-#ifdef UNIVERSAL_PARSER
-    const rb_parser_config_t *config;
-#endif
 };
 
 RUBY_SYMBOL_EXPORT_BEGIN
@@ -56,7 +53,6 @@ void rb_ast_dispose(rb_ast_t*);
 const char *ruby_node_name(int node);
 void rb_node_init(NODE *n, enum node_type type);
 
-void rb_ast_mark_and_move(rb_ast_t *ast, bool reference_updating);
 void rb_ast_update_references(rb_ast_t*);
 void rb_ast_free(rb_ast_t*);
 NODE *rb_ast_newnode(rb_ast_t*, enum node_type type, size_t size, size_t alignment);
@@ -89,6 +85,7 @@ RUBY_SYMBOL_EXPORT_END
 #define NODE_SPECIAL_EXCESSIVE_COMMA   ((ID)1)
 #define NODE_SPECIAL_NO_REST_KEYWORD   ((NODE *)-1)
 
+#define nd_code_loc(n) (&RNODE(n)->nd_loc)
 #define nd_first_column(n) ((int)(RNODE(n)->nd_loc.beg_pos.column))
 #define nd_set_first_column(n, v) (RNODE(n)->nd_loc.beg_pos.column = (v))
 #define nd_first_lineno(n) ((int)(RNODE(n)->nd_loc.beg_pos.lineno))

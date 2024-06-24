@@ -1,6 +1,6 @@
 require_relative 'helper'
 
-class Reline::KeyActor::ViInsert::Test < Reline::TestCase
+class Reline::ViInsertTest < Reline::TestCase
   def setup
     Reline.send(:test_mode)
     @prompt = '> '
@@ -13,69 +13,73 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
     @line_editor.reset(@prompt, encoding: @encoding)
   end
 
+  def editing_mode_label
+    @config.instance_variable_get(:@editing_mode_label)
+  end
+
   def teardown
     Reline.test_reset
   end
 
   def test_vi_command_mode
     input_keys("\C-[")
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
   end
 
   def test_vi_command_mode_with_input
     input_keys("abc\C-[")
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
     assert_line_around_cursor('ab', 'c')
   end
 
   def test_vi_insert
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys('i')
     assert_line_around_cursor('i', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys("\C-[")
     assert_line_around_cursor('', 'i')
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
     input_keys('i')
     assert_line_around_cursor('', 'i')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
   end
 
   def test_vi_add
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys('a')
     assert_line_around_cursor('a', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys("\C-[")
     assert_line_around_cursor('', 'a')
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
     input_keys('a')
     assert_line_around_cursor('a', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
   end
 
   def test_vi_insert_at_bol
     input_keys('I')
     assert_line_around_cursor('I', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys("12345\C-[hh")
     assert_line_around_cursor('I12', '345')
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
     input_keys('I')
     assert_line_around_cursor('', 'I12345')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
   end
 
   def test_vi_add_at_eol
     input_keys('A')
     assert_line_around_cursor('A', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
     input_keys("12345\C-[hh")
     assert_line_around_cursor('A12', '345')
-    assert_instance_of(Reline::KeyActor::ViCommand, @config.editing_mode)
+    assert_equal(:vi_command, editing_mode_label)
     input_keys('A')
     assert_line_around_cursor('A12345', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
   end
 
   def test_ed_insert_one
@@ -627,6 +631,52 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
     assert_line_around_cursor('foo_bar', '')
   end
 
+  def test_autocompletion_with_upward_navigation
+    @config.autocompletion = true
+    @line_editor.completion_proc = proc { |word|
+      %w{
+        Readline
+        Regexp
+        RegexpError
+      }.map { |i|
+        i.encode(@encoding)
+      }
+    }
+    input_keys('Re')
+    assert_line_around_cursor('Re', '')
+    input_keys("\C-i", false)
+    assert_line_around_cursor('Readline', '')
+    input_keys("\C-i", false)
+    assert_line_around_cursor('Regexp', '')
+    @line_editor.input_key(Reline::Key.new(:completion_journey_up, :completion_journey_up, false))
+    assert_line_around_cursor('Readline', '')
+  ensure
+    @config.autocompletion = false
+  end
+
+  def test_autocompletion_with_upward_navigation_and_menu_complete_backward
+    @config.autocompletion = true
+    @line_editor.completion_proc = proc { |word|
+      %w{
+        Readline
+        Regexp
+        RegexpError
+      }.map { |i|
+        i.encode(@encoding)
+      }
+    }
+    input_keys('Re')
+    assert_line_around_cursor('Re', '')
+    input_keys("\C-i", false)
+    assert_line_around_cursor('Readline', '')
+    input_keys("\C-i", false)
+    assert_line_around_cursor('Regexp', '')
+    @line_editor.input_key(Reline::Key.new(:menu_complete_backward, :menu_complete_backward, false))
+    assert_line_around_cursor('Readline', '')
+  ensure
+    @config.autocompletion = false
+  end
+
   def test_completion_with_disable_completion
     @config.disable_completion = true
     @line_editor.completion_proc = proc { |word|
@@ -665,6 +715,20 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
     assert_line_around_cursor('', '   abcde  ABCDE  ')
   end
 
+  def test_vi_to_column
+    input_keys("a一二三\C-[0")
+    input_keys('1|')
+    assert_line_around_cursor('', 'a一二三')
+    input_keys('2|')
+    assert_line_around_cursor('a', '一二三')
+    input_keys('3|')
+    assert_line_around_cursor('a', '一二三')
+    input_keys('4|')
+    assert_line_around_cursor('a一', '二三')
+    input_keys('9|')
+    assert_line_around_cursor('a一二', '三')
+  end
+
   def test_vi_delete_meta
     input_keys("aaa bbb ccc ddd eee\C-[02w")
     assert_line_around_cursor('aaa bbb ', 'ccc ddd eee')
@@ -693,10 +757,16 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
   end
 
   def test_vi_delete_meta_with_arg
-    input_keys("aaa bbb ccc\C-[02w")
-    assert_line_around_cursor('aaa bbb ', 'ccc')
+    input_keys("aaa bbb ccc ddd\C-[03w")
+    assert_line_around_cursor('aaa bbb ccc ', 'ddd')
     input_keys('2dl')
-    assert_line_around_cursor('aaa bbb ', 'c')
+    assert_line_around_cursor('aaa bbb ccc ', 'd')
+    input_keys('d2h')
+    assert_line_around_cursor('aaa bbb cc', 'd')
+    input_keys('2d3h')
+    assert_line_around_cursor('aaa ', 'd')
+    input_keys('dd')
+    assert_line_around_cursor('', '')
   end
 
   def test_vi_change_meta
@@ -719,6 +789,45 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
     assert_line_around_cursor('foo  hog', 'e  baz')
   end
 
+  def test_vi_waiting_operator_with_waiting_proc
+    input_keys("foo foo foo foo foo\C-[0")
+    input_keys('2d3fo')
+    assert_line_around_cursor('', ' foo foo')
+    input_keys('fo')
+    assert_line_around_cursor(' f', 'oo foo')
+  end
+
+  def test_vi_waiting_operator_cancel
+    input_keys("aaa bbb ccc\C-[02w")
+    assert_line_around_cursor('aaa bbb ', 'ccc')
+    # dc dy should cancel delete_meta
+    input_keys('dch')
+    input_keys('dyh')
+    # cd cy should cancel change_meta
+    input_keys('cdh')
+    input_keys('cyh')
+    # yd yc should cancel yank_meta
+    # P should not paste yanked text because yank_meta is canceled
+    input_keys('ydhP')
+    input_keys('ychP')
+    assert_line_around_cursor('aa', 'a bbb ccc')
+  end
+
+  def test_cancel_waiting_with_symbol_key
+    input_keys("aaa bbb lll\C-[0")
+    assert_line_around_cursor('', 'aaa bbb lll')
+    # ed_next_char should move cursor right and cancel vi_next_char
+    input_keys('f')
+    input_key_by_symbol(:ed_next_char)
+    input_keys('l')
+    assert_line_around_cursor('aa', 'a bbb lll')
+    # ed_next_char should move cursor right and cancel delete_meta
+    input_keys('d')
+    input_key_by_symbol(:ed_next_char)
+    input_keys('l')
+    assert_line_around_cursor('aaa ', 'bbb lll')
+  end
+
   def test_unimplemented_vi_command_should_be_no_op
     input_keys("abc\C-[h")
     assert_line_around_cursor('a', 'bc')
@@ -727,12 +836,16 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
   end
 
   def test_vi_yank
-    input_keys("foo bar\C-[0")
-    assert_line_around_cursor('', 'foo bar')
+    input_keys("foo bar\C-[2h")
+    assert_line_around_cursor('foo ', 'bar')
     input_keys('y3l')
-    assert_line_around_cursor('', 'foo bar')
+    assert_line_around_cursor('foo ', 'bar')
     input_keys('P')
-    assert_line_around_cursor('fo', 'ofoo bar')
+    assert_line_around_cursor('foo ba', 'rbar')
+    input_keys('3h3yhP')
+    assert_line_around_cursor('foofo', 'o barbar')
+    input_keys('yyP')
+    assert_line_around_cursor('foofofoofoo barba', 'ro barbar')
   end
 
   def test_vi_end_word_with_operator
@@ -792,14 +905,19 @@ class Reline::KeyActor::ViInsert::Test < Reline::TestCase
     assert_line_around_cursor('abc', '')
     input_keys("\C-[0C")
     assert_line_around_cursor('', '')
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
   end
 
   def test_vi_motion_operators
-    assert_instance_of(Reline::KeyActor::ViInsert, @config.editing_mode)
+    assert_equal(:vi_insert, editing_mode_label)
 
     assert_nothing_raised do
       input_keys("test = { foo: bar }\C-[BBBldt}b")
     end
+  end
+
+  def test_emacs_editing_mode
+    @line_editor.__send__(:emacs_editing_mode, nil)
+    assert(@config.editing_mode_is?(:emacs))
   end
 end

@@ -222,7 +222,7 @@ setinstancevariable
 (ID id, IVC ic)
 (VALUE val)
 ()
-// attr bool leaf = false; /* has rb_check_frozen_internal() */
+// attr bool leaf = false; /* has rb_check_frozen() */
 {
     vm_setinstancevariable(GET_ISEQ(), GET_SELF(), id, val, ic);
 }
@@ -976,6 +976,9 @@ opt_newarray_send
         break;
       case idMax:
         val = vm_opt_newarray_max(ec, num, STACK_ADDR_FROM_TOP(num));
+        break;
+      case idPack:
+        val = rb_vm_opt_newarray_pack(ec, (long)num-1, STACK_ADDR_FROM_TOP(num), TOPN(0));
         break;
       default:
         rb_bug("unreachable");

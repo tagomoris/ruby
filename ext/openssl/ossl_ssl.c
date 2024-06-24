@@ -7,7 +7,7 @@
  */
 /*
  * This program is licensed under the same licence as Ruby.
- * (See the file 'LICENCE'.)
+ * (See the file 'COPYING'.)
  */
 #include "ossl.h"
 
@@ -1958,9 +1958,11 @@ ossl_ssl_read_internal(int argc, VALUE *argv, VALUE self, int nonblock)
 	else
 	    rb_str_modify_expand(str, ilen - RSTRING_LEN(str));
     }
-    rb_str_set_len(str, 0);
-    if (ilen == 0)
-	return str;
+
+    if (ilen == 0) {
+        rb_str_set_len(str, 0);
+        return str;
+    }
 
     VALUE io = rb_attr_get(self, id_i_io);
 

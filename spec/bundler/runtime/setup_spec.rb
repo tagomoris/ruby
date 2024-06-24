@@ -767,6 +767,18 @@ end
     expect(err).to be_empty
   end
 
+  it "can require rubygems without warnings, when using a local cache", :truffleruby do
+    install_gemfile <<-G
+      source "#{file_uri_for(gem_repo1)}"
+      gem "rack"
+    G
+
+    bundle "package"
+    bundle %(exec ruby -w -e "require 'rubygems'")
+
+    expect(err).to be_empty
+  end
+
   context "when the user has `MANPATH` set", :man do
     before { ENV["MANPATH"] = "/foo#{File::PATH_SEPARATOR}" }
 
@@ -930,9 +942,9 @@ end
     G
 
     run <<-R
-      puts Bundler.rubygems.all_specs.map(&:name)
+      puts Bundler.rubygems.installed_specs.map(&:name)
       Gem.refresh
-      puts Bundler.rubygems.all_specs.map(&:name)
+      puts Bundler.rubygems.installed_specs.map(&:name)
     R
 
     expect(out).to eq("activesupport\nbundler\nactivesupport\nbundler")
@@ -1364,6 +1376,24 @@ end
       expect(out).to eq("undefined\nconstant")
     end
 
+    it "activates default gems when they are part of the bundle, but not installed explicitly", :ruby_repo do
+      default_json_version = ruby "gem 'json'; require 'json'; puts JSON::VERSION"
+
+      build_repo2 do
+        build_gem "json", default_json_version
+      end
+
+      gemfile "source \"#{file_uri_for(gem_repo2)}\"; gem 'json'"
+
+      ruby <<-RUBY
+        require "bundler/setup"
+        require "json"
+        puts defined?(::JSON) ? "JSON defined" : "JSON undefined"
+      RUBY
+
+      expect(err).to be_empty
+    end
+
     describe "default gem activation" do
       let(:exemptions) do
         exempts = %w[did_you_mean bundler uri pathname]
@@ -1598,5 +1628,20 @@ end
 
     sys_exec "#{Gem.ruby} #{script}", raise_on_error: false
     expect(out).to include("requiring foo used the monkeypatch")
+  end
+
+  it "performs an automatic bundle install" do
+    gemfile <<-G
+      source "#{file_uri_for(gem_repo1)}"
+      gem "rack", :group => :test
+    G
+
+    bundle "config set auto_install 1"
+
+    ruby <<-RUBY
+      require 'bundler/setup'
+    RUBY
+    expect(err).to be_empty
+    expect(out).to include("Installing rack 1.0.0")
   end
 end

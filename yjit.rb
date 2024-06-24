@@ -155,8 +155,8 @@ module RubyVM::YJIT
 
   # Return a hash for statistics generated for the `--yjit-stats` command line option.
   # Return `nil` when option is not passed or unavailable.
-  def self.runtime_stats(context: false)
-    stats = Primitive.rb_yjit_get_stats(context)
+  def self.runtime_stats()
+    stats = Primitive.rb_yjit_get_stats()
     return stats if stats.nil?
 
     stats[:object_shape_count] = Primitive.object_shape_count
@@ -201,13 +201,27 @@ module RubyVM::YJIT
     # If a method or proc is passed in, get its iseq
     iseq = RubyVM::InstructionSequence.of(iseq)
 
-    if self.enabled?
-      # Produce the disassembly string
-      # Include the YARV iseq disasm in the string for additional context
-      iseq.disasm + "\n" + Primitive.rb_yjit_disasm_iseq(iseq)
-    else
-      iseq.disasm
+    if !self.enabled?
+      warn(
+        "YJIT needs to be enabled to produce disasm output, e.g.\n" +
+        "ruby --yjit-call-threshold=1 my_script.rb (see doc/yjit/yjit.md)"
+      )
+      return nil
     end
+
+    disasm_str = Primitive.rb_yjit_disasm_iseq(iseq)
+
+    if !disasm_str
+      warn(
+        "YJIT disasm is only available when YJIT is built in dev mode, i.e.\n" +
+        "./configure --enable-yjit=dev (see doc/yjit/yjit.md)\n"
+      )
+      return nil
+    end
+
+    # Produce the disassembly string
+    # Include the YARV iseq disasm in the string for additional context
+    iseq.disasm + "\n" + disasm_str
   end
 
   # Produce a list of instructions compiled by YJIT for an iseq
@@ -299,7 +313,7 @@ module RubyVM::YJIT
 
     # Format and print out counters
     def _print_stats(out: $stderr) # :nodoc:
-      stats = runtime_stats(context: true)
+      stats = runtime_stats()
       return unless Primitive.rb_yjit_stats_enabled_p
 
       out.puts("***YJIT: Printing YJIT statistics on exit***")
@@ -374,8 +388,14 @@ module RubyVM::YJIT
 
       out.puts "freed_code_size:       " + format_number(13, stats[:freed_code_size])
       out.puts "yjit_alloc_size:       " + format_number(13, stats[:yjit_alloc_size]) if stats.key?(:yjit_alloc_size)
-      out.puts "live_context_size:     " + format_number(13, stats[:live_context_size])
-      out.puts "live_context_count:    " + format_number(13, stats[:live_context_count])
+
+      bytes_per_context = stats[:context_data_bytes].fdiv(stats[:num_contexts_encoded])
+      out.puts "context_data_bytes:    " + format_number(13, stats[:context_data_bytes])
+      out.puts "context_cache_bytes:   " + format_number(13, stats[:context_cache_bytes])
+      out.puts "num_contexts_encoded:  " + format_number(13, stats[:num_contexts_encoded])
+      out.puts "bytes_per_context:     " + ("%13.2f" % bytes_per_context)
+      out.puts "context_cache_hit_rate:" + format_number_pct(13, stats[:context_cache_hits], stats[:num_contexts_encoded])
+
       out.puts "live_page_count:       " + format_number(13, stats[:live_page_count])
       out.puts "freed_page_count:      " + format_number(13, stats[:freed_page_count])
       out.puts "code_gc_count:         " + format_number(13, stats[:code_gc_count])

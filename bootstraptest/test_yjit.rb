@@ -592,6 +592,8 @@ assert_equal 'string', %q{
 
 # Check that exceptions work when getting global variable
 assert_equal 'rescued', %q{
+  Warning[:deprecated] = true
+
   module Warning
     def warn(message)
       raise
@@ -2315,6 +2317,19 @@ assert_equal '123', %q{
 
   foo(Foo)
   foo(Foo)
+}
+
+# Test EP == BP invalidation with moving ISEQs
+assert_equal 'ok', %q{
+  def entry
+    ok = proc { :ok } # set #entry as an EP-escaping ISEQ
+    [nil].reverse_each do # avoid exiting the JIT frame on the constant
+      GC.compact # move #entry ISEQ
+    end
+    ok # should be read off of escaped EP
+  end
+
+  entry.call
 }
 
 # invokesuper edge case
@@ -4770,6 +4785,19 @@ assert_equal '[:ok, :ok, :ok]', %q{
   tests
 }
 
+# regression test for invalidating an empty block
+assert_equal '0', %q{
+  def foo = (* = 1).pred
+
+  foo # compile it
+
+  class Integer
+    def to_ary = [] # invalidate
+  end
+
+  foo # try again
+} unless rjit_enabled? # doesn't work on RJIT
+
 # test integer left shift with constant rhs
 assert_equal [0x80000000000, 'a+', :ok].inspect, %q{
   def shift(val) = val << 43
@@ -4786,3 +4814,247 @@ assert_equal [0x80000000000, 'a+', :ok].inspect, %q{
 
   tests
 }
+
+# test integer left shift fusion followed by opt_getconstant_path
+assert_equal '33', %q{
+  def test(a)
+    (a << 5) | (Object; a)
+  end
+
+  test(1)
+}
+
+# test String#stebyte with arguments that need conversion
+assert_equal "abc", %q{
+  str = +"a00"
+  def change_bytes(str, one, two)
+    str.setbyte(one, "b".ord)
+    str.setbyte(2, two)
+  end
+
+  to_int_1 = Object.new
+  to_int_99 = Object.new
+  def to_int_1.to_int = 1
+  def to_int_99.to_int = 99
+
+  change_bytes(str, to_int_1, to_int_99)
+  str
+}
+
+# test --yjit-verify-ctx for arrays with a singleton class
+assert_equal "ok", %q{
+  class Array
+    def foo
+      self.singleton_class.define_method(:first) { :ok }
+      first
+    end
+  end
+
+  def test = [].foo
+
+  test
+}
+
+assert_equal '["raised", "Module", "Object"]', %q{
+  def foo(obj)
+    obj.superclass.name
+  end
+
+  ret = []
+
+  begin
+    foo(Class.allocate)
+  rescue TypeError
+    ret << 'raised'
+  end
+
+  ret += [foo(Class), foo(Class.new)]
+}
+
+# test TrueClass#=== before and after redefining TrueClass#==
+assert_equal '[[true, false, false], [true, true, false], [true, :error, :error]]', %q{
+  def true_eqq(x)
+    true === x
+  rescue NoMethodError
+    :error
+  end
+
+  def test
+    [
+      # first one is always true because rb_equal does object comparison before calling #==
+      true_eqq(true),
+      # these will use TrueClass#==
+      true_eqq(false),
+      true_eqq(:truthy),
+    ]
+  end
+
+  results = [test]
+
+  class TrueClass
+    def ==(x)
+      !x
+    end
+  end
+
+  results << test
+
+  class TrueClass
+    undef_method :==
+  end
+
+  results << test
+} unless rjit_enabled? # Not yet working on RJIT
+
+# test FalseClass#=== before and after redefining FalseClass#==
+assert_equal '[[true, false, false], [true, false, true], [true, :error, :error]]', %q{
+  def case_equal(x, y)
+    x === y
+  rescue NoMethodError
+    :error
+  end
+
+  def test
+    [
+      # first one is always true because rb_equal does object comparison before calling #==
+      case_equal(false, false),
+      # these will use #==
+      case_equal(false, true),
+      case_equal(false, nil),
+    ]
+  end
+
+  results = [test]
+
+  class FalseClass
+    def ==(x)
+      !x
+    end
+  end
+
+  results << test
+
+  class FalseClass
+    undef_method :==
+  end
+
+  results << test
+} unless rjit_enabled? # Not yet working on RJIT
+
+# test NilClass#=== before and after redefining NilClass#==
+assert_equal '[[true, false, false], [true, false, true], [true, :error, :error]]', %q{
+  def case_equal(x, y)
+    x === y
+  rescue NoMethodError
+    :error
+  end
+
+  def test
+    [
+      # first one is always true because rb_equal does object comparison before calling #==
+      case_equal(nil, nil),
+      # these will use #==
+      case_equal(nil, true),
+      case_equal(nil, false),
+    ]
+  end
+
+  results = [test]
+
+  class NilClass
+    def ==(x)
+      !x
+    end
+  end
+
+  results << test
+
+  class NilClass
+    undef_method :==
+  end
+
+  results << test
+} unless rjit_enabled? # Not yet working on RJIT
+
+# test struct accessors fire c_call events
+assert_equal '[[:c_call, :x=], [:c_call, :x]]', %q{
+  c = Struct.new(:x)
+  obj = c.new
+
+  events = []
+  TracePoint.new(:c_call) do
+    events << [_1.event, _1.method_id]
+  end.enable do
+    obj.x = 100
+    obj.x
+  end
+
+  events
+}
+
+# regression test for splatting empty array
+assert_equal '1', %q{
+  def callee(foo) = foo
+
+  def test_body(args) = callee(1, *args)
+
+  test_body([])
+  array = Array.new(100)
+  array.clear
+  test_body(array)
+}
+
+# regression test for splatting empty array to cfunc
+assert_normal_exit %q{
+  def test_body(args) = Array(1, *args)
+
+  test_body([])
+  0x100.times do
+    array = Array.new(100)
+    array.clear
+    test_body(array)
+  end
+}
+
+# compiling code shouldn't emit warnings as it may call into more Ruby code
+assert_equal 'ok', <<~'RUBY'
+  # [Bug #20522]
+  $VERBOSE = true
+  Warning[:performance] = true
+
+  module StrictWarnings
+    def warn(msg, **)
+      raise msg
+    end
+  end
+  Warning.singleton_class.prepend(StrictWarnings)
+
+  class A
+    def compiled_method(is_private)
+      @some_ivar = is_private
+    end
+  end
+
+  shape_max_variations = 8
+  if defined?(RubyVM::Shape::SHAPE_MAX_VARIATIONS) && RubyVM::Shape::SHAPE_MAX_VARIATIONS != shape_max_variations
+    raise "Expected SHAPE_MAX_VARIATIONS to be #{shape_max_variations}, got: #{RubyVM::Shape::SHAPE_MAX_VARIATIONS}"
+  end
+
+  100.times do |i|
+    klass = Class.new(A)
+    (shape_max_variations - 1).times do |j|
+      obj = klass.new
+      obj.instance_variable_set("@base_#{i}", 42)
+      obj.instance_variable_set("@ivar_#{j}", 42)
+    end
+    obj = klass.new
+    obj.instance_variable_set("@base_#{i}", 42)
+    begin
+      obj.compiled_method(true)
+    rescue
+      # expected
+    end
+  end
+
+  :ok
+RUBY

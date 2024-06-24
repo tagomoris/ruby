@@ -7,13 +7,16 @@ errors:
   - ARGUMENT_BARE_HASH
   - ARGUMENT_BLOCK_FORWARDING
   - ARGUMENT_BLOCK_MULTI
+  - ARGUMENT_CONFLICT_AMPERSAND
+  - ARGUMENT_CONFLICT_STAR
+  - ARGUMENT_CONFLICT_STAR_STAR
   - ARGUMENT_FORMAL_CLASS
   - ARGUMENT_FORMAL_CONSTANT
   - ARGUMENT_FORMAL_GLOBAL
   - ARGUMENT_FORMAL_IVAR
   - ARGUMENT_FORWARDING_UNBOUND
   - ARGUMENT_IN
-  - ARGUMENT_NO_FORWARDING_AMP
+  - ARGUMENT_NO_FORWARDING_AMPERSAND
   - ARGUMENT_NO_FORWARDING_ELLIPSES
   - ARGUMENT_NO_FORWARDING_STAR
   - ARGUMENT_NO_FORWARDING_STAR_STAR
@@ -95,6 +98,7 @@ errors:
   - EXPECT_EXPRESSION_AFTER_SPLAT_HASH
   - EXPECT_EXPRESSION_AFTER_STAR
   - EXPECT_IDENT_REQ_PARAMETER
+  - EXPECT_IN_DELIMITER
   - EXPECT_LPAREN_REQ_PARAMETER
   - EXPECT_MESSAGE
   - EXPECT_RBRACKET
@@ -104,6 +108,15 @@ errors:
   - EXPECT_STRING_CONTENT
   - EXPECT_WHEN_DELIMITER
   - EXPRESSION_BARE_HASH
+  - EXPRESSION_NOT_WRITABLE
+  - EXPRESSION_NOT_WRITABLE_ENCODING
+  - EXPRESSION_NOT_WRITABLE_FALSE
+  - EXPRESSION_NOT_WRITABLE_FILE
+  - EXPRESSION_NOT_WRITABLE_LINE
+  - EXPRESSION_NOT_WRITABLE_NIL
+  - EXPRESSION_NOT_WRITABLE_NUMBERED
+  - EXPRESSION_NOT_WRITABLE_SELF
+  - EXPRESSION_NOT_WRITABLE_TRUE
   - FLOAT_PARSE
   - FOR_COLLECTION
   - FOR_IN
@@ -115,32 +128,40 @@ errors:
   - HASH_ROCKET
   - HASH_TERM
   - HASH_VALUE
+  - HEREDOC_IDENTIFIER
   - HEREDOC_TERM
   - INCOMPLETE_QUESTION_MARK
   - INCOMPLETE_VARIABLE_CLASS
-  - INCOMPLETE_VARIABLE_CLASS_3_3_0
+  - INCOMPLETE_VARIABLE_CLASS_3_3
   - INCOMPLETE_VARIABLE_INSTANCE
-  - INCOMPLETE_VARIABLE_INSTANCE_3_3_0
+  - INCOMPLETE_VARIABLE_INSTANCE_3_3
   - INSTANCE_VARIABLE_BARE
   - INVALID_BLOCK_EXIT
   - INVALID_CHARACTER
   - INVALID_ENCODING_MAGIC_COMMENT
+  - INVALID_ESCAPE_CHARACTER
   - INVALID_FLOAT_EXPONENT
+  - INVALID_LOCAL_VARIABLE_READ
+  - INVALID_LOCAL_VARIABLE_WRITE
   - INVALID_MULTIBYTE_CHAR
   - INVALID_MULTIBYTE_CHARACTER
   - INVALID_MULTIBYTE_ESCAPE
   - INVALID_NUMBER_BINARY
   - INVALID_NUMBER_DECIMAL
+  - INVALID_NUMBER_FRACTION
   - INVALID_NUMBER_HEXADECIMAL
   - INVALID_NUMBER_OCTAL
-  - INVALID_NUMBER_UNDERSCORE
+  - INVALID_NUMBER_UNDERSCORE_INNER
+  - INVALID_NUMBER_UNDERSCORE_TRAILING
   - INVALID_PERCENT
+  - INVALID_PERCENT_EOF
   - INVALID_PRINTABLE_CHARACTER
   - INVALID_RETRY_AFTER_ELSE
   - INVALID_RETRY_AFTER_ENSURE
   - INVALID_RETRY_WITHOUT_RESCUE
+  - INVALID_SYMBOL
   - INVALID_VARIABLE_GLOBAL
-  - INVALID_VARIABLE_GLOBAL_3_3_0
+  - INVALID_VARIABLE_GLOBAL_3_3
   - INVALID_YIELD
   - IT_NOT_ALLOWED_NUMBERED
   - IT_NOT_ALLOWED_ORDINARY
@@ -165,15 +186,17 @@ errors:
   - NO_LOCAL_VARIABLE
   - NOT_EXPRESSION
   - NUMBER_LITERAL_UNDERSCORE
+  - NUMBERED_PARAMETER_INNER_BLOCK
   - NUMBERED_PARAMETER_IT
   - NUMBERED_PARAMETER_ORDINARY
-  - NUMBERED_PARAMETER_OUTER_SCOPE
+  - NUMBERED_PARAMETER_OUTER_BLOCK
   - OPERATOR_MULTI_ASSIGN
   - OPERATOR_WRITE_ARGUMENTS
   - OPERATOR_WRITE_BLOCK
   - PARAMETER_ASSOC_SPLAT_MULTI
   - PARAMETER_BLOCK_MULTI
   - PARAMETER_CIRCULAR
+  - PARAMETER_FORWARDING_AFTER_REST
   - PARAMETER_METHOD_NAME
   - PARAMETER_NAME_DUPLICATED
   - PARAMETER_NO_DEFAULT
@@ -183,6 +206,7 @@ errors:
   - PARAMETER_SPLAT_MULTI
   - PARAMETER_STAR
   - PARAMETER_UNEXPECTED_FWD
+  - PARAMETER_UNEXPECTED_NO_KW
   - PARAMETER_WILD_LOOSE_COMMA
   - PATTERN_CAPTURE_DUPLICATE
   - PATTERN_EXPRESSION_AFTER_BRACKET
@@ -195,9 +219,12 @@ errors:
   - PATTERN_EXPRESSION_AFTER_PIPE
   - PATTERN_EXPRESSION_AFTER_RANGE
   - PATTERN_EXPRESSION_AFTER_REST
+  - PATTERN_HASH_IMPLICIT
   - PATTERN_HASH_KEY
   - PATTERN_HASH_KEY_DUPLICATE
+  - PATTERN_HASH_KEY_INTERPOLATED
   - PATTERN_HASH_KEY_LABEL
+  - PATTERN_HASH_KEY_LOCALS
   - PATTERN_IDENT_AFTER_HROCKET
   - PATTERN_LABEL_AFTER_COMMA
   - PATTERN_REST
@@ -209,6 +236,7 @@ errors:
   - REGEXP_INCOMPAT_CHAR_ENCODING
   - REGEXP_INVALID_UNICODE_RANGE
   - REGEXP_NON_ESCAPED_MBC
+  - REGEXP_PARSE_ERROR
   - REGEXP_TERM
   - REGEXP_UNKNOWN_OPTIONS
   - REGEXP_UTF8_CHAR_NON_UTF8_REGEXP
@@ -236,6 +264,10 @@ errors:
   - UNARY_RECEIVER
   - UNDEF_ARGUMENT
   - UNEXPECTED_BLOCK_ARGUMENT
+  - UNEXPECTED_INDEX_BLOCK
+  - UNEXPECTED_INDEX_KEYWORDS
+  - UNEXPECTED_MULTI_WRITE
+  - UNEXPECTED_SAFE_NAVIGATION
   - UNEXPECTED_TOKEN_CLOSE_CONTEXT
   - UNEXPECTED_TOKEN_IGNORE
   - UNTIL_TERM
@@ -246,6 +278,7 @@ errors:
   - WRITE_TARGET_UNEXPECTED
   - XSTRING_TERM
 warnings:
+  - AMBIGUOUS_BINARY_OPERATOR
   - AMBIGUOUS_FIRST_ARGUMENT_MINUS
   - AMBIGUOUS_FIRST_ARGUMENT_PLUS
   - AMBIGUOUS_PREFIX_AMPERSAND
@@ -255,7 +288,7 @@ warnings:
   - COMPARISON_AFTER_COMPARISON
   - DOT_DOT_DOT_EOL
   - EQUAL_IN_CONDITIONAL
-  - EQUAL_IN_CONDITIONAL_3_3_0
+  - EQUAL_IN_CONDITIONAL_3_3
   - END_IN_METHOD
   - DUPLICATED_HASH_KEY
   - DUPLICATED_WHEN_CLAUSE
@@ -268,6 +301,7 @@ warnings:
   - KEYWORD_EOL
   - LITERAL_IN_CONDITION_DEFAULT
   - LITERAL_IN_CONDITION_VERBOSE
+  - SHAREABLE_CONSTANT_VALUE_LINE
   - SHEBANG_CARRIAGE_RETURN
   - UNEXPECTED_CARRIAGE_RETURN
   - UNREACHABLE_STATEMENT
@@ -606,6 +640,8 @@ tokens:
 flags:
   - name: ArgumentsNodeFlags
     values:
+      - name: CONTAINS_KEYWORDS
+        comment: "if arguments contain keywords"
       - name: CONTAINS_KEYWORD_SPLAT
         comment: "if arguments contain keyword splat"
     comment: Flags for arguments nodes.
@@ -695,6 +731,11 @@ flags:
       - name: FORCED_US_ASCII_ENCODING
         comment: "internal bytes forced the encoding to US-ASCII"
     comment: Flags for regular expression and match last line nodes.
+  - name: ReturnNodeFlags
+    values:
+      - name: REDUNDANT
+        comment: "a return statement that is redundant because it is the last statement in a method"
+    comment: Flags for return nodes.
   - name: ShareableConstantNodeFlags
     values:
       - name: LITERAL
@@ -729,10 +770,25 @@ nodes:
     fields:
       - name: new_name
         type: node
+        comment: |
+          Represents the new name of the global variable that can be used after aliasing. This can be either a global variable, a back reference, or a numbered reference.
+
+              alias $foo $bar
+                    ^^^^
       - name: old_name
         type: node
+        comment: |
+          Represents the old name of the global variable that could be used before aliasing. This can be either a global variable, a back reference, or a numbered reference.
+
+              alias $foo $bar
+                         ^^^^
       - name: keyword_loc
         type: location
+        comment: |
+          The location of the `alias` keyword.
+
+              alias $foo $bar
+              ^^^^^
     comment: |
       Represents the use of the `alias` keyword to alias a global variable.
 
@@ -817,10 +873,25 @@ nodes:
         kind: ArrayNodeFlags
       - name: elements
         type: node[]
+        comment: Represent the list of zero or more [non-void expressions](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression) within the array.
       - name: opening_loc
         type: location?
+        comment: |
+          Represents the optional source location for the opening token.
+
+              [1,2,3]                 # "["
+              %w[foo bar baz]         # "%w["
+              %I(apple orange banana) # "%I("
+              foo = 1, 2, 3           # nil
       - name: closing_loc
         type: location?
+        comment: |
+          Represents the optional source location for the closing token.
+
+              [1,2,3]                 # "]"
+              %w[foo bar baz]         # "]"
+              %I(apple orange banana) # ")"
+              foo = 1, 2, 3           # nil
     comment: |
       Represents an array literal. This can be a regular array using brackets or a special array using % like %w or %i.
 
@@ -1039,8 +1110,18 @@ nodes:
       - name: arguments
         type: node?
         kind: ArgumentsNode
+        comment: |
+          The arguments to the break statement, if present. These can be any [non-void expressions](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              break foo
+                    ^^^
       - name: keyword_loc
         type: location
+        comment: |
+          The location of the `break` keyword.
+
+              break foo
+              ^^^^^
     comment: |
       Represents the use of the `break` keyword.
 
@@ -1138,9 +1219,9 @@ nodes:
         type: constant
       - name: write_name
         type: constant
-      - name: operator
+      - name: binary_operator
         type: constant
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
@@ -1296,11 +1377,11 @@ nodes:
         type: constant
       - name: name_loc
         type: location
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
-      - name: operator
+      - name: binary_operator
         type: constant
     comment: |
       Represents assigning to a class variable using an operator that isn't `=`.
@@ -1366,8 +1447,7 @@ nodes:
       - name: value
         type: node
         comment: |
-          The value to assign to the class variable. Can be any node that
-          represents a non-void expression.
+          The value to write to the class variable. This can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
 
               @@foo = :bar
                       ^^^^
@@ -1407,11 +1487,11 @@ nodes:
         type: constant
       - name: name_loc
         type: location
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
-      - name: operator
+      - name: binary_operator
         type: constant
     comment: |
       Represents assigning to a constant using an operator that isn't `=`.
@@ -1451,13 +1531,40 @@ nodes:
     fields:
       - name: parent
         type: node?
-      - name: child
-        type: node
-        kind:
-          - ConstantReadNode
-          - MissingNode
+        comment: |
+          The left-hand node of the path, if present. It can be `nil` or any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression). It will be `nil` when the constant lookup is at the root of the module tree.
+
+              Foo::Bar
+              ^^^
+
+              self::Test
+              ^^^^
+
+              a.b::C
+              ^^^
+      - name: name
+        type: constant?
+        comment: The name of the constant being accessed. This could be `nil` in the event of a syntax error.
       - name: delimiter_loc
         type: location
+        comment: |
+          The location of the `::` delimiter.
+
+              ::Foo
+              ^^
+
+              One::Two
+                 ^^
+      - name: name_loc
+        type: location
+        comment: |
+          The location of the name of the constant.
+
+              ::Foo
+                ^^^
+
+              One::Two
+                   ^^^
     comment: |
       Represents accessing a constant through a path of `::` operators.
 
@@ -1468,11 +1575,11 @@ nodes:
       - name: target
         type: node
         kind: ConstantPathNode
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
-      - name: operator
+      - name: binary_operator
         type: constant
     comment: |
       Represents assigning to a constant path using an operator that isn't `=`.
@@ -1497,12 +1604,11 @@ nodes:
     fields:
       - name: parent
         type: node?
-      - name: child
-        type: node
-        kind:
-          - ConstantReadNode
-          - MissingNode
+      - name: name
+        type: constant?
       - name: delimiter_loc
+        type: location
+      - name: name_loc
         type: location
     comment: |
       Represents writing to a constant path in a context that doesn't have an explicit value.
@@ -1514,10 +1620,28 @@ nodes:
       - name: target
         type: node
         kind: ConstantPathNode
+        comment: |
+          A node representing the constant path being written to.
+
+              Foo::Bar = 1
+              ^^^^^^^^
+
+              ::Foo = :abc
+              ^^^^^
       - name: operator_loc
         type: location
+        comment: |
+          The location of the `=` operator.
+
+              ::ABC = 123
+                    ^
       - name: value
         type: node
+        comment: |
+          The value to write to the constant path. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              FOO::BAR = :abc
+                         ^^^^
     comment: |
       Represents writing to a constant path.
 
@@ -1557,12 +1681,36 @@ nodes:
     fields:
       - name: name
         type: constant
+        comment: |
+          The name of the [constant](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#constants).
+
+              Foo = :bar # name `:Foo`
+
+              XYZ = 1    # name `:XYZ`
       - name: name_loc
         type: location
+        comment: |
+          The location of the constant name.
+
+              FOO = 1
+              ^^^
       - name: value
         type: node
+        comment: |
+          The value to write to the constant. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              FOO = :bar
+                    ^^^^
+
+              MyClass = Class.new
+                        ^^^^^^^^^
       - name: operator_loc
         type: location
+        comment: |
+          The location of the `=` operator.
+
+              FOO = :bar
+                  ^
     comment: |
       Represents writing to a constant.
 
@@ -1734,19 +1882,56 @@ nodes:
     fields:
       - name: index
         type: node
+        comment: |
+          The index expression for `for` loops.
+
+              for i in a end
+                  ^
       - name: collection
         type: node
+        comment: |
+          The collection to iterate over.
+
+              for i in a end
+                       ^
       - name: statements
         type: node?
         kind: StatementsNode
+        comment: |
+          Represents the body of statements to execute for each iteration of the loop.
+
+              for i in a
+                foo(i)
+                ^^^^^^
+              end
       - name: for_keyword_loc
         type: location
+        comment: |
+          The location of the `for` keyword.
+
+              for i in a end
+              ^^^
       - name: in_keyword_loc
         type: location
+        comment: |
+          The location of the `in` keyword.
+
+              for i in a end
+                    ^^
       - name: do_keyword_loc
         type: location?
+        comment: |
+          The location of the `do` keyword, if present.
+
+              for i in a do end
+                         ^^
       - name: end_keyword_loc
         type: location
+        comment: |
+          The location of the `end` keyword.
+
+              for i in a end
+                         ^^^
     comment: |
       Represents the use of the `for` keyword.
 
@@ -1798,11 +1983,11 @@ nodes:
         type: constant
       - name: name_loc
         type: location
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
-      - name: operator
+      - name: binary_operator
         type: constant
     comment: |
       Represents assigning to a global variable using an operator that isn't `=`.
@@ -1852,12 +2037,36 @@ nodes:
     fields:
       - name: name
         type: constant
+        comment: |
+          The name of the global variable, which is a `$` followed by an [identifier](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#identifier). Alternatively, it can be one of the special global variables designated by a symbol.
+
+              $foo = :bar  # name `:$foo`
+
+              $_Test = 123 # name `:$_Test`
       - name: name_loc
         type: location
+        comment: |
+          The location of the global variable's name.
+
+              $foo = :bar
+              ^^^^
       - name: value
         type: node
+        comment: |
+          The value to write to the global variable. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              $foo = :bar
+                     ^^^^
+
+              $-xyz = 123
+                      ^^^
       - name: operator_loc
         type: location
+        comment: |
+          The location of the `=` operator.
+
+              $foo = :bar
+                   ^
     comment: |
       Represents writing to a global variable.
 
@@ -1925,26 +2134,87 @@ nodes:
     fields:
       - name: if_keyword_loc
         type: location?
+        comment: |
+          The location of the `if` keyword if present.
+
+              bar if foo
+                  ^^
+
+          The `if_keyword_loc` field will be `nil` when the `IfNode` represents a ternary expression.
       - name: predicate
         type: node
+        comment: |
+          The node for the condition the `IfNode` is testing.
+
+              if foo
+                 ^^^
+                bar
+              end
+
+              bar if foo
+                     ^^^
+
+              foo ? bar : baz
+              ^^^
       - name: then_keyword_loc
         type: location?
+        comment: |
+          The location of the `then` keyword (if present) or the `?` in a ternary expression, `nil` otherwise.
+
+              if foo then bar end
+                     ^^^^
+
+              a ? b : c
+                ^
       - name: statements
         type: node?
         kind: StatementsNode
+        comment: |
+          Represents the body of statements that will be executed when the predicate is evaluated as truthy. Will be `nil` when no body is provided.
+
+              if foo
+                bar
+                ^^^
+                baz
+                ^^^
+              end
       - name: consequent
         type: node?
+        comment: |
+          Represents an `ElseNode` or an `IfNode` when there is an `else` or an `elsif` in the `if` statement.
+
+              if foo
+                bar
+              elsif baz
+              ^^^^^^^^^
+                qux
+                ^^^
+              end
+              ^^^
+
+              if foo then bar else baz end
+                              ^^^^^^^^^^^^
       - name: end_keyword_loc
         type: location?
+        comment: |
+          The location of the `end` keyword if present, `nil` otherwise.
+
+              if foo
+                bar
+              end
+              ^^^
     newline: predicate
     comment: |
-      Represents the use of the `if` keyword, either in the block form or the modifier form.
+      Represents the use of the `if` keyword, either in the block form or the modifier form, or a ternary expression.
 
           bar if foo
           ^^^^^^^^^^
 
           if foo then bar end
           ^^^^^^^^^^^^^^^^^^^
+
+          foo ? bar : baz
+          ^^^^^^^^^^^^^^^
   - name: ImaginaryNode
     fields:
       - name: numeric
@@ -2049,9 +2319,9 @@ nodes:
         type: location
       - name: block
         type: node?
-      - name: operator
+      - name: binary_operator
         type: constant
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
@@ -2137,11 +2407,11 @@ nodes:
         type: constant
       - name: name_loc
         type: location
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
-      - name: operator
+      - name: binary_operator
         type: constant
     comment: |
       Represents assigning to an instance variable using an operator that isn't `=`.
@@ -2207,8 +2477,7 @@ nodes:
       - name: value
         type: node
         comment: |
-          The value to assign to the instance variable. Can be any node that
-          represents a non-void expression.
+          The value to write to the instance variable. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
 
               @foo = :bar
                      ^^^^
@@ -2340,6 +2609,12 @@ nodes:
 
           `foo #{bar} baz`
           ^^^^^^^^^^^^^^^^
+  - name: ItLocalVariableReadNode
+    comment: |
+      Represents reading from the implicit `it` local variable.
+
+          -> { it }
+               ^^
   - name: ItParametersNode
     comment: |
       Represents an implicit set of parameters through the use of the `it` keyword within a block or lambda.
@@ -2418,13 +2693,13 @@ nodes:
     fields:
       - name: name_loc
         type: location
-      - name: operator_loc
+      - name: binary_operator_loc
         type: location
       - name: value
         type: node
       - name: name
         type: constant
-      - name: operator
+      - name: binary_operator
         type: constant
       - name: depth
         type: uint32
@@ -2465,10 +2740,6 @@ nodes:
 
               _1     # name `:_1`
 
-          Finally, for the default `it` block parameter, the name is `0it`. This is to distinguish it from an `it` local variable that is explicitly declared.
-
-              it     # name `:0it`
-
       - name: depth
         type: uint32
         comment: |
@@ -2499,14 +2770,50 @@ nodes:
     fields:
       - name: name
         type: constant
+        comment: |
+          The name of the local variable, which is an [identifier](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#identifiers).
+
+              foo = :bar # name `:foo`
+
+              abc = 123  # name `:abc`
       - name: depth
         type: uint32
+        comment: |
+          The number of semantic scopes we have to traverse to find the declaration of this variable.
+
+              foo = 1         # depth 0
+
+              tap { foo = 1 } # depth 1
+
+          The specific rules for calculating the depth may differ from individual Ruby implementations, as they are not specified by the language. For more information, see [the Prism documentation](https://github.com/ruby/prism/blob/main/docs/local_variable_depth.md).
       - name: name_loc
         type: location
+        comment: |
+          The location of the variable name.
+
+              foo = :bar
+              ^^^
       - name: value
         type: node
+        comment: |
+          The value to write to the local variable. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              foo = :bar
+                    ^^^^
+
+              abc = 1234
+                    ^^^^
+
+          Note that since the name of a local variable is known before the value is parsed, it is valid for a local variable to appear within the value of its own write.
+
+              foo = foo
       - name: operator_loc
         type: location
+        comment: |
+          The location of the `=` operator.
+
+              x = :y
+                ^
     comment: |
       Represents writing to a local variable.
 
@@ -2823,6 +3130,8 @@ nodes:
           # On parsing error of `f(**kwargs, ...)` or `f(**nil, ...)`, the keyword_rest value is moved here:
           - KeywordRestParameterNode
           - NoKeywordsParameterNode
+          # On parsing error of `f(..., ...)`, the first forwarding parameter is moved here:
+          - ForwardingParameterNode
       - name: keywords
         type: node[]
         kind:
@@ -2963,8 +3272,21 @@ nodes:
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   - name: RationalNode
     fields:
-      - name: numeric
-        type: node
+      - name: flags
+        type: flags
+        kind: IntegerBaseFlags
+      - name: numerator
+        type: integer
+        comment: |
+          The numerator of the rational number.
+
+              1.5r # numerator 3
+      - name: denominator
+        type: integer
+        comment: |
+          The denominator of the rational number.
+
+              1.5r # denominator 2
     comment: |
       Represents a rational number literal.
 
@@ -3087,6 +3409,9 @@ nodes:
           ^^^^^
   - name: ReturnNode
     fields:
+      - name: flags
+        type: flags
+        kind: ReturnNodeFlags
       - name: keyword_loc
         type: location
       - name: arguments
@@ -3158,6 +3483,7 @@ nodes:
         kind: StringFlags
       - name: filepath
         type: string
+        comment: Represents the file path being parsed. This corresponds directly to the `filepath` option given to the various `Prism::parse*` APIs.
     comment: |
       Represents the use of the `__FILE__` keyword.
 
@@ -3279,18 +3605,55 @@ nodes:
     fields:
       - name: keyword_loc
         type: location
+        comment: |
+          The location of the `unless` keyword.
+
+              unless cond then bar end
+              ^^^^^^
+
+              bar unless cond
+                  ^^^^^^
       - name: predicate
         type: node
+        comment: |
+          The condition to be evaluated for the unless expression. It can be any [non-void expression](https://github.com/ruby/prism/blob/main/docs/parsing_rules.md#non-void-expression).
+
+              unless cond then bar end
+                     ^^^^
+
+              bar unless cond
+                         ^^^^
       - name: then_keyword_loc
         type: location?
+        comment: |
+          The location of the `then` keyword, if present.
+
+              unless cond then bar end
+                          ^^^^
       - name: statements
         type: node?
         kind: StatementsNode
+        comment: |
+          The body of statements that will executed if the unless condition is
+          falsey. Will be `nil` if no body is provided.
+
+              unless cond then bar end
+                               ^^^
       - name: consequent
         type: node?
         kind: ElseNode
+        comment: |
+          The else clause of the unless expression, if present.
+
+              unless cond then bar else baz end
+                                   ^^^^^^^^
       - name: end_keyword_loc
         type: location?
+        comment: |
+          The location of the `end` keyword, if present.
+
+              unless cond then bar end
+                                   ^^^
     newline: predicate
     comment: |
       Represents the use of the `unless` keyword, either in the block form or the modifier form.

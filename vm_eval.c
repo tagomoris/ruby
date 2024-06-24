@@ -29,15 +29,6 @@ static VALUE rb_eUncaughtThrow;
 static ID id_result, id_tag, id_value;
 #define id_mesg idMesg
 
-typedef enum call_type {
-    CALL_PUBLIC,
-    CALL_FCALL,
-    CALL_VCALL,
-    CALL_PUBLIC_KW,
-    CALL_FCALL_KW,
-    CALL_TYPE_MAX
-} call_type;
-
 static VALUE send_internal(int argc, const VALUE *argv, VALUE recv, call_type scope);
 static VALUE vm_call0_body(rb_execution_context_t* ec, struct rb_calling_info *calling, const VALUE *argv);
 
@@ -403,71 +394,54 @@ NORETURN(static void uncallable_object(VALUE recv, ID mid));
 static inline const rb_callable_method_entry_t *rb_search_method_entry(VALUE recv, ID mid);
 static inline enum method_missing_reason rb_method_call_status(rb_execution_context_t *ec, const rb_callable_method_entry_t *me, call_type scope, VALUE self);
 
-static const struct rb_callcache *
-cc_new(VALUE klass, ID mid, int argc, const rb_callable_method_entry_t *cme)
-{
-    const struct rb_callcache *cc = NULL;
-
-    RB_VM_LOCK_ENTER();
-    {
-        struct rb_class_cc_entries *ccs;
-        struct rb_id_table *cc_tbl = RCLASS_CC_TBL(klass);
-        VALUE ccs_data;
-
-        if (rb_id_table_lookup(cc_tbl, mid, &ccs_data)) {
-            // ok
-            ccs = (struct rb_class_cc_entries *)ccs_data;
-        }
-        else {
-            ccs = vm_ccs_create(klass, cc_tbl, mid, cme);
-        }
-
-        for (int i=0; i<ccs->len; i++) {
-            cc = ccs->entries[i].cc;
-            if (vm_cc_cme(cc) == cme) {
-                break;
-            }
-            cc = NULL;
-        }
-
-        if (cc == NULL) {
-            const struct rb_callinfo *ci = vm_ci_new(mid, 0, argc, NULL); // TODO: proper ci
-            cc = vm_cc_new(klass, cme, vm_call_general, cc_type_normal);
-            METHOD_ENTRY_CACHED_SET((struct rb_callable_method_entry_struct *)cme);
-            vm_ccs_push(klass, ccs, ci, cc);
-        }
-    }
-    RB_VM_LOCK_LEAVE();
-
-    return cc;
-}
-
 static VALUE
 gccct_hash(VALUE klass, ID mid)
 {
+    // TODO: inject the namespace id into the hash?
     return (klass >> 3) ^ (VALUE)mid;
 }
 
-NOINLINE(static const struct rb_callcache *gccct_method_search_slowpath(rb_vm_t *vm, VALUE klass, ID mid, int argc, unsigned int index));
+NOINLINE(static const struct rb_callcache *gccct_method_search_slowpath(rb_vm_t *vm, VALUE klass, unsigned int index, const struct rb_callinfo * ci));
 
 static const struct rb_callcache *
-gccct_method_search_slowpath(rb_vm_t *vm, VALUE klass, ID mid, int argc, unsigned int index)
+gccct_method_search_slowpath(rb_vm_t *vm, VALUE klass, unsigned int index, const struct rb_callinfo *ci)
 {
-    const rb_callable_method_entry_t *cme = rb_callable_method_entry(klass, mid);
-    const struct rb_callcache *cc;
+    struct rb_call_data cd = {
+            .ci = ci,
+            .cc = NULL
+    };
 
-    if (cme != NULL) {
-        cc = cc_new(klass, mid, argc, cme);
-    }
-    else {
-        cc = NULL;
-    }
+    vm_search_method_slowpath0(vm->self, &cd, klass);
 
-    return vm->global_cc_cache_table[index] = cc;
+    return vm->global_cc_cache_table[index] = cd.cc;
+}
+
+static void
+scope_to_ci(call_type scope, ID mid, int argc, struct rb_callinfo *ci)
+{
+    int flags = 0;
+
+    switch(scope) {
+      case CALL_PUBLIC:
+        break;
+      case CALL_FCALL:
+        flags |= VM_CALL_FCALL;
+        break;
+      case CALL_VCALL:
+        flags |= VM_CALL_VCALL;
+        break;
+      case CALL_PUBLIC_KW:
+        flags |= VM_CALL_KWARG;
+        break;
+      case CALL_FCALL_KW:
+        flags |= (VM_CALL_KWARG | VM_CALL_FCALL);
+        break;
+    }
+    *ci = VM_CI_ON_STACK(mid, flags, argc, NULL);
 }
 
 static inline const struct rb_callcache *
-gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, int argc)
+gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct rb_callinfo *ci)
 {
     VALUE klass;
 
@@ -502,7 +476,18 @@ gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, int argc)
     }
 
     RB_DEBUG_COUNTER_INC(gccct_miss);
-    return gccct_method_search_slowpath(vm, klass, mid, argc, index);
+    return gccct_method_search_slowpath(vm, klass, index, ci);
+}
+
+VALUE
+rb_gccct_clear_table(VALUE _self)
+{
+    int i;
+    rb_vm_t *vm = GET_VM();
+    for (i=0; i<VM_GLOBAL_CC_CACHE_TABLE_SIZE; i++) {
+        vm->global_cc_cache_table[i] = NULL;
+    }
+    return Qnil;
 }
 
 /**
@@ -543,7 +528,10 @@ rb_call0(rb_execution_context_t *ec,
         break;
     }
 
-    const struct rb_callcache *cc = gccct_method_search(ec, recv, mid, argc);
+    struct rb_callinfo ci;
+    scope_to_ci(scope, mid, argc, &ci);
+
+    const struct rb_callcache *cc = gccct_method_search(ec, recv, mid, &ci);
 
     if (scope == CALL_PUBLIC) {
         RB_DEBUG_COUNTER_INC(call0_public);
@@ -1060,7 +1048,11 @@ static inline VALUE
 rb_funcallv_scope(VALUE recv, ID mid, int argc, const VALUE *argv, call_type scope)
 {
     rb_execution_context_t *ec = GET_EC();
-    const struct rb_callcache *cc = gccct_method_search(ec, recv, mid, argc);
+
+    struct rb_callinfo ci;
+    scope_to_ci(scope, mid, argc, &ci);
+
+    const struct rb_callcache *cc = gccct_method_search(ec, recv, mid, &ci);
     VALUE self = ec->cfp->self;
 
     if (LIKELY(cc) &&
@@ -1649,6 +1641,10 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
     const rb_iseq_t *const parent = vm_block_iseq(base_block);
     const rb_iseq_t *iseq = parent;
     VALUE name = rb_fstring_lit("<compiled>");
+
+    // Conditionally enable coverage depending on the current mode:
+    int coverage_enabled = ((rb_get_coverage_mode() & COVERAGE_TARGET_EVAL) != 0) ? 1 : 0;
+
     if (!fname) {
         fname = rb_source_location(&line);
     }
@@ -1658,10 +1654,12 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
     }
     else {
         fname = get_eval_default_path();
+        coverage_enabled = 0;
     }
 
     pm_parse_result_t result = { 0 };
     pm_options_line_set(&result.options, line);
+    result.node.coverage_enabled = coverage_enabled;
 
     // Cout scopes, one for each parent iseq, plus one for our local scope
     int scopes_count = 0;
@@ -1723,6 +1721,7 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
         RUBY_ASSERT(parent_scope != NULL);
 
         pm_options_scope_t *options_scope = &result.options.scopes[scopes_count - scopes_index - 1];
+        parent_scope->coverage_enabled = coverage_enabled;
         parent_scope->parser = &result.parser;
         parent_scope->index_lookup_table = st_init_numtable();
 
@@ -1773,6 +1772,7 @@ eval_make_iseq(VALUE src, VALUE fname, int line,
     const VALUE parser = rb_parser_new();
     const rb_iseq_t *const parent = vm_block_iseq(base_block);
     rb_iseq_t *iseq = NULL;
+    VALUE ast_value;
     rb_ast_t *ast;
     int isolated_depth = 0;
 
@@ -1809,11 +1809,14 @@ eval_make_iseq(VALUE src, VALUE fname, int line,
     }
 
     rb_parser_set_context(parser, parent, FALSE);
-    rb_parser_set_script_lines(parser, RBOOL(ruby_vm_keep_script_lines));
-    ast = rb_parser_compile_string_path(parser, fname, src, line);
+    if (ruby_vm_keep_script_lines) rb_parser_set_script_lines(parser);
+    ast_value = rb_parser_compile_string_path(parser, fname, src, line);
+
+    ast = rb_ruby_ast_data_get(ast_value);
+
     if (ast->body.root) {
         ast->body.coverage_enabled = coverage_enabled;
-        iseq = rb_iseq_new_eval(&ast->body,
+        iseq = rb_iseq_new_eval(ast_value,
                                 ISEQ_BODY(parent)->location.label,
                                 fname, Qnil, line,
                                 parent, isolated_depth);
@@ -1859,6 +1862,7 @@ eval_string_with_cref(VALUE self, VALUE src, rb_cref_t *cref, VALUE file, int li
         cref = vm_cref_dup(orig_cref);
     }
     vm_set_eval_stack(ec, iseq, cref, &block);
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -1880,6 +1884,8 @@ eval_string_with_scope(VALUE scope, VALUE src, VALUE file, int line)
     if (ISEQ_BODY(iseq)->local_table_size > 0) {
         vm_bind_update_env(scope, bind, vm_make_env_object(ec, ec->cfp));
     }
+
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -2715,6 +2721,7 @@ Init_vm_eval(void)
     rb_define_method(rb_eUncaughtThrow, "value", uncaught_throw_value, 0);
     rb_define_method(rb_eUncaughtThrow, "to_s", uncaught_throw_to_s, 0);
 
+    rb_define_singleton_method(rb_cModule, "gccct_clear_table", rb_gccct_clear_table, 0);
     id_result = rb_intern_const("result");
     id_tag = rb_intern_const("tag");
     id_value = rb_intern_const("value");

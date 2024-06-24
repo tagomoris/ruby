@@ -350,7 +350,7 @@ ary_memcpy(VALUE ary, long beg, long argc, const VALUE *argv)
 }
 
 static VALUE *
-ary_heap_alloc(size_t capa)
+ary_heap_alloc_buffer(size_t capa)
 {
     return ALLOC_N(VALUE, capa);
 }
@@ -404,7 +404,7 @@ ary_resize_capa(VALUE ary, long capacity)
         size_t new_capa = capacity;
         if (ARY_EMBED_P(ary)) {
             long len = ARY_EMBED_LEN(ary);
-            VALUE *ptr = ary_heap_alloc(capacity);
+            VALUE *ptr = ary_heap_alloc_buffer(capacity);
 
             MEMCPY(ptr, ARY_EMBED_PTR(ary), VALUE, len);
             FL_UNSET_EMBED(ary);
@@ -555,7 +555,7 @@ rb_ary_cancel_sharing(VALUE ary)
             rb_ary_decrement_share(shared_root);
         }
         else {
-            VALUE *ptr = ary_heap_alloc(len);
+            VALUE *ptr = ary_heap_alloc_buffer(len);
             MEMCPY(ptr, ARY_HEAP_PTR(ary), VALUE, len);
             rb_ary_unshare(ary);
             ARY_SET_CAPA(ary, len);
@@ -714,7 +714,7 @@ ary_new(VALUE klass, long capa)
         ARY_SET_CAPA(ary, capa);
         RUBY_ASSERT(!ARY_EMBED_P(ary));
 
-        ARY_SET_PTR(ary, ary_heap_alloc(capa));
+        ARY_SET_PTR(ary, ary_heap_alloc_buffer(capa));
         ARY_SET_HEAP_LEN(ary, 0);
     }
 
@@ -818,7 +818,7 @@ ec_ary_new(rb_execution_context_t *ec, VALUE klass, long capa)
         ARY_SET_CAPA(ary, capa);
         RUBY_ASSERT(!ARY_EMBED_P(ary));
 
-        ARY_SET_PTR(ary, ary_heap_alloc(capa));
+        ARY_SET_PTR(ary, ary_heap_alloc_buffer(capa));
         ARY_SET_HEAP_LEN(ary, 0);
     }
 
@@ -880,6 +880,19 @@ rb_ary_free(VALUE ary)
     }
 }
 
+VALUE
+rb_setup_fake_ary(struct RArray *fake_ary, const VALUE *list, long len, bool freeze)
+{
+    fake_ary->basic.flags = T_ARRAY;
+    VALUE ary = (VALUE)fake_ary;
+    RBASIC_CLEAR_CLASS(ary);
+    ARY_SET_PTR(ary, list);
+    ARY_SET_HEAP_LEN(ary, len);
+    ARY_SET_CAPA(ary, len);
+    if (freeze) OBJ_FREEZE(ary);
+    return ary;
+}
+
 size_t
 rb_ary_memsize(VALUE ary)
 {
@@ -918,7 +931,7 @@ ary_make_shared(VALUE ary)
         FL_SET_SHARED_ROOT(shared);
 
         if (ARY_EMBED_P(ary)) {
-            VALUE *ptr = ary_heap_alloc(capa);
+            VALUE *ptr = ary_heap_alloc_buffer(capa);
             ARY_SET_PTR(shared, ptr);
             ary_memcpy(shared, 0, len, RARRAY_CONST_PTR(ary));
 
@@ -3393,6 +3406,9 @@ rb_ary_sort_bang(VALUE ary)
                 rb_ary_unshare(ary);
                 FL_SET_EMBED(ary);
             }
+            if (ARY_EMBED_LEN(tmp) > ARY_CAPA(ary)) {
+                ary_resize_capa(ary, ARY_EMBED_LEN(tmp));
+            }
             ary_memcpy(ary, 0, ARY_EMBED_LEN(tmp), ARY_EMBED_PTR(tmp));
             ARY_SET_LEN(ary, ARY_EMBED_LEN(tmp));
         }
@@ -4556,7 +4572,7 @@ rb_ary_replace(VALUE copy, VALUE orig)
      * contents of orig. */
     else if (ARY_EMBED_P(orig)) {
         long len = ARY_EMBED_LEN(orig);
-        VALUE *ptr = ary_heap_alloc(len);
+        VALUE *ptr = ary_heap_alloc_buffer(len);
 
         FL_UNSET_EMBED(copy);
         ARY_SET_PTR(copy, ptr);
@@ -6533,6 +6549,14 @@ rb_ary_shuffle(rb_execution_context_t *ec, VALUE ary, VALUE randgen)
     return ary;
 }
 
+static const rb_data_type_t ary_sample_memo_type = {
+    .wrap_struct_name = "ary_sample_memo",
+    .function = {
+        .dfree = (RUBY_DATA_FUNC)st_free_table,
+    },
+    .flags = RUBY_TYPED_WB_PROTECTED | RUBY_TYPED_FREE_IMMEDIATELY
+};
+
 static VALUE
 ary_sample(rb_execution_context_t *ec, VALUE ary, VALUE randgen, VALUE nv, VALUE to_array)
 {
@@ -6614,11 +6638,9 @@ ary_sample(rb_execution_context_t *ec, VALUE ary, VALUE randgen, VALUE nv, VALUE
     }
     else if (n <= memo_threshold / 2) {
         long max_idx = 0;
-#undef RUBY_UNTYPED_DATA_WARNING
-#define RUBY_UNTYPED_DATA_WARNING 0
-        VALUE vmemo = Data_Wrap_Struct(0, 0, st_free_table, 0);
+        VALUE vmemo = TypedData_Wrap_Struct(0, &ary_sample_memo_type, 0);
         st_table *memo = st_init_numtable_with_size(n);
-        DATA_PTR(vmemo) = memo;
+        RTYPEDDATA_DATA(vmemo) = memo;
         result = rb_ary_new_capa(n);
         RARRAY_PTR_USE(result, ptr_result, {
             for (i=0; i<n; i++) {
@@ -6641,7 +6663,7 @@ ary_sample(rb_execution_context_t *ec, VALUE ary, VALUE randgen, VALUE nv, VALUE
                 }
             });
         });
-        DATA_PTR(vmemo) = 0;
+        RTYPEDDATA_DATA(vmemo) = 0;
         st_free_table(memo);
         RB_GC_GUARD(vmemo);
     }

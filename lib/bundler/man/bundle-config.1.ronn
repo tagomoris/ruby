@@ -137,9 +137,6 @@ the environment variable `BUNDLE_LOCAL__RACK`.
 The following is a list of all configuration keys and their purpose. You can
 learn more about their operation in [bundle install(1)](bundle-install.1.html).
 
-* `allow_deployment_source_credential_changes` (`BUNDLE_ALLOW_DEPLOYMENT_SOURCE_CREDENTIAL_CHANGES`):
-   When in deployment mode, allow changing the credentials to a gem's source.
-   Ex: `https://some.host.com/gems/path/` -> `https://user_name:password@some.host.com/gems/path`
 * `allow_offline_install` (`BUNDLE_ALLOW_OFFLINE_INSTALL`):
    Allow Bundler to use cached data when installing without network access.
 * `auto_clean_without_path` (`BUNDLE_AUTO_CLEAN_WITHOUT_PATH`):
@@ -400,7 +397,7 @@ through ENV.
 
 ## CONFIGURE BUNDLER DIRECTORIES
 
-Bundler's home, config, cache and plugin directories are able to be configured
+Bundler's home, cache and plugin directories and config file can be configured
 through environment variables. The default location for Bundler's home directory is
 `~/.bundle`, which all directories inherit from by default. The following
 outlines the available environment variables and their default values

@@ -5,6 +5,7 @@ require_relative "vendored_thor"
 module Bundler
   class CLI < Thor
     require_relative "cli/common"
+    require_relative "cli/install"
 
     package_name "Bundler"
 
@@ -64,12 +65,12 @@ module Bundler
         Bundler.reset_settings_and_root!
       end
 
-      Bundler.self_manager.restart_with_locked_bundler_if_needed
+      Bundler.auto_switch
 
       Bundler.settings.set_command_option_if_given :retry, options[:retry]
 
       current_cmd = args.last[:current_command].name
-      auto_install if AUTO_INSTALL_CMDS.include?(current_cmd)
+      Bundler.auto_install if AUTO_INSTALL_CMDS.include?(current_cmd)
     rescue UnknownArgumentError => e
       raise InvalidOption, e.message
     ensure
@@ -114,6 +115,8 @@ module Bundler
     class_option "verbose", type: :boolean, desc: "Enable verbose output mode", aliases: "-V"
 
     def help(cli = nil)
+      cli = self.class.all_aliases[cli] if self.class.all_aliases[cli]
+
       case cli
       when "gemfile" then command = "gemfile"
       when nil       then command = "bundle"
@@ -683,7 +686,6 @@ module Bundler
       exec_used = args.index {|a| exec_commands.include? a }
 
       command = args.find {|a| bundler_commands.include? a }
-      command = all_aliases[command] if all_aliases[command]
 
       if exec_used && help_used
         if exec_used + help_used == 1
@@ -736,26 +738,6 @@ module Bundler
 
     private
 
-    # Automatically invoke `bundle install` and resume if
-    # Bundler.settings[:auto_install] exists. This is set through config cmd
-    # `bundle config set --global auto_install 1`.
-    #
-    # Note that this method `nil`s out the global Definition object, so it
-    # should be called first, before you instantiate anything like an
-    # `Installer` that'll keep a reference to the old one instead.
-    def auto_install
-      return unless Bundler.settings[:auto_install]
-
-      begin
-        Bundler.definition.specs
-      rescue GemNotFound, GitError
-        Bundler.ui.info "Automatically installing missing gems."
-        Bundler.reset!
-        invoke :install, []
-        Bundler.reset!
-      end
-    end
-
     def current_command
       _, _, config = @_initializer
       config[:current_command]
@@ -785,13 +767,10 @@ module Bundler
 
       return unless SharedHelpers.md5_available?
 
-      latest = Fetcher::CompactIndex.
-               new(nil, Source::Rubygems::Remote.new(Gem::URI("https://rubygems.org")), nil, nil).
-               send(:compact_index_client).
-               instance_variable_get(:@cache).
-               dependencies("bundler").
-               map {|d| Gem::Version.new(d.first) }.
-               max
+      require_relative "vendored_uri"
+      remote = Source::Rubygems::Remote.new(Gem::URI("https://rubygems.org"))
+      cache_path = Bundler.user_cache.join("compact_index", remote.cache_slug)
+      latest = Bundler::CompactIndexClient.new(cache_path).latest_version("bundler")
       return unless latest
 
       current = Gem::Version.new(VERSION)
