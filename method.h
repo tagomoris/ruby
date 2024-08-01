@@ -195,6 +195,7 @@ struct rb_method_definition_struct {
 
     ID original_id;
     uintptr_t method_serial;
+    const rb_namespace_t *ns;
 };
 
 struct rb_id_table;
@@ -251,5 +252,6 @@ VALUE rb_unnamed_parameters(int arity);
 
 void rb_clear_method_cache(VALUE klass_or_module, ID mid);
 void rb_clear_all_refinement_method_cache(void);
+void rb_invalidate_method_caches(struct rb_id_table *cm_tbl, struct rb_id_table *cc_tbl);
 
 #endif /* RUBY_METHOD_H */
