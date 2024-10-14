@@ -4049,7 +4049,7 @@ rb_cvar_set(VALUE klass, ID id, VALUE val)
     // cvar in this lookup.
     if (result == 0) {
         if (RB_TYPE_P(target, T_CLASS)) {
-            if (RCLASS_SUBCLASSES(target)) {
+            if (RCLASS_SUBCLASSES_FIRST(target)) {
                 rb_class_foreach_subclass(target, check_for_cvar_table, id);
             }
         }
