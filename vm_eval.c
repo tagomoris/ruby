@@ -400,8 +400,9 @@ static inline const rb_callable_method_entry_t *rb_search_method_entry(VALUE rec
 static inline enum method_missing_reason rb_method_call_status(rb_execution_context_t *ec, const rb_callable_method_entry_t *me, call_type scope, VALUE self);
 
 static VALUE
-gccct_hash(VALUE klass, ID mid)
+gccct_hash(VALUE klass, VALUE namespace, ID mid)
 {
+    // return ((klass ^ namespace) >> 3) ^ (VALUE)mid;
     return (klass >> 3) ^ (VALUE)mid;
 }
 
@@ -448,6 +449,7 @@ static inline const struct rb_callcache *
 gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct rb_callinfo *ci)
 {
     VALUE klass;
+    const rb_namespace_t *ns = rb_current_namespace();
 
     if (!SPECIAL_CONST_P(recv)) {
         klass = RBASIC_CLASS(recv);
@@ -458,7 +460,7 @@ gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct
     }
 
     // search global method cache
-    unsigned int index = (unsigned int)(gccct_hash(klass, mid) % VM_GLOBAL_CC_CACHE_TABLE_SIZE);
+    unsigned int index = (unsigned int)(gccct_hash(klass, ns && ns->ns_object, mid) % VM_GLOBAL_CC_CACHE_TABLE_SIZE);
     rb_vm_t *vm = rb_ec_vm_ptr(ec);
     const struct rb_callcache *cc = vm->global_cc_cache_table[index];
 
@@ -481,6 +483,17 @@ gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct
 
     RB_DEBUG_COUNTER_INC(gccct_miss);
     return gccct_method_search_slowpath(vm, klass, index, ci);
+}
+
+VALUE
+rb_gccct_clear_table(VALUE _self)
+{
+    int i;
+    rb_vm_t *vm = GET_VM();
+    for (i=0; i<VM_GLOBAL_CC_CACHE_TABLE_SIZE; i++) {
+        vm->global_cc_cache_table[i] = NULL;
+    }
+    return Qnil;
 }
 
 /**
@@ -1916,6 +1929,7 @@ eval_string_with_cref(VALUE self, VALUE src, rb_cref_t *cref, VALUE file, int li
         cref = vm_cref_dup(orig_cref);
     }
     vm_set_eval_stack(ec, iseq, cref, &block);
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -1937,6 +1951,8 @@ eval_string_with_scope(VALUE scope, VALUE src, VALUE file, int line)
     if (ISEQ_BODY(iseq)->local_table_size > 0) {
         vm_bind_update_env(scope, bind, vm_make_env_object(ec, ec->cfp));
     }
+
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -2783,6 +2799,7 @@ Init_vm_eval(void)
     rb_define_method(rb_eUncaughtThrow, "value", uncaught_throw_value, 0);
     rb_define_method(rb_eUncaughtThrow, "to_s", uncaught_throw_to_s, 0);
 
+    rb_define_singleton_method(rb_cModule, "gccct_clear_table", rb_gccct_clear_table, 0);
     id_result = rb_intern_const("result");
     id_tag = rb_intern_const("tag");
     id_value = rb_intern_const("value");
