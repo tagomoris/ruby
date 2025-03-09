@@ -25,6 +25,7 @@
 #include "internal/error.h"
 #include "internal/eval.h"
 #include "internal/hash.h"
+#include "internal/namespace.h"
 #include "internal/object.h"
 #include "internal/re.h"
 #include "internal/symbol.h"
@@ -105,10 +106,10 @@ classname(VALUE klass, bool *permanent)
 {
     *permanent = false;
 
-    VALUE classpath = RCLASS_EXT(klass)->classpath;
+    VALUE classpath = RCLASS_CLASSPATH(klass);
     if (classpath == 0) return Qnil;
 
-    *permanent = RCLASS_EXT(klass)->permanent_classpath;
+    *permanent = RCLASS_PERMANENT_CLASSPATH_P(klass);
 
     return classpath;
 }
@@ -218,13 +219,13 @@ VALUE
 rb_mod_set_temporary_name(VALUE mod, VALUE name)
 {
     // We don't allow setting the name if the classpath is already permanent:
-    if (RCLASS_EXT(mod)->permanent_classpath) {
+    if (RCLASS_PERMANENT_CLASSPATH_P(mod)) {
         rb_raise(rb_eRuntimeError, "can't change permanent name");
     }
 
     if (NIL_P(name)) {
         // Set the temporary classpath to NULL (anonymous):
-        RCLASS_SET_CLASSPATH(mod, 0, FALSE);
+        RCLASS_WRITE_CLASSPATH(mod, 0, FALSE);
     }
     else {
         // Ensure the name is a string:
@@ -239,7 +240,7 @@ rb_mod_set_temporary_name(VALUE mod, VALUE name)
         }
 
         // Set the temporary classpath to the given name:
-        RCLASS_SET_CLASSPATH(mod, name, FALSE);
+        RCLASS_WRITE_CLASSPATH(mod, name, FALSE);
     }
 
     return mod;
@@ -445,6 +446,7 @@ struct rb_global_variable {
     rb_gvar_marker_t *marker;
     rb_gvar_compact_t *compactor;
     struct trace_var *trace;
+    bool namespace_ready;
 };
 
 struct rb_global_entry {
@@ -520,6 +522,13 @@ rb_gvar_ractor_local(const char *name)
     entry->ractor_local = true;
 }
 
+void
+rb_gvar_namespace_ready(const char *name)
+{
+    struct rb_global_entry *entry = rb_find_global_entry(rb_intern(name));
+    entry->var->namespace_ready = true;
+}
+
 static void
 rb_gvar_undef_compactor(void *var)
 {
@@ -545,6 +554,7 @@ rb_global_entry(ID id)
 
         var->block_trace = 0;
         var->trace = 0;
+        var->namespace_ready = false;
         rb_id_table_insert(rb_global_tbl, id, (VALUE)entry);
     }
     return entry;
@@ -898,13 +908,27 @@ rb_gvar_set_entry(struct rb_global_entry *entry, VALUE val)
     return val;
 }
 
+#define USE_NAMESPACE_GVAR_TBL(ns,entry) \
+    (NAMESPACE_OPTIONAL_P(ns) && \
+     (!entry || !entry->var->namespace_ready || entry->var->setter != rb_gvar_readonly_setter))
+
 VALUE
 rb_gvar_set(ID id, VALUE val)
 {
+    VALUE retval;
     struct rb_global_entry *entry;
+    const rb_namespace_t *ns = rb_current_namespace();
+
     entry = rb_global_entry(id);
 
-    return rb_gvar_set_entry(entry, val);
+    if (USE_NAMESPACE_GVAR_TBL(ns, entry)) {
+        rb_hash_aset(ns->gvar_tbl, rb_id2sym(entry->id), val);
+        retval = val;
+        // TODO: think about trace
+    } else {
+        retval = rb_gvar_set_entry(entry, val);
+    }
+    return retval;
 }
 
 VALUE
@@ -916,9 +940,27 @@ rb_gv_set(const char *name, VALUE val)
 VALUE
 rb_gvar_get(ID id)
 {
+    VALUE retval, gvars, key;
     struct rb_global_entry *entry = rb_global_entry(id);
     struct rb_global_variable *var = entry->var;
-    return (*var->getter)(entry->id, var->data);
+    const rb_namespace_t *ns = rb_current_namespace();
+
+    if (USE_NAMESPACE_GVAR_TBL(ns, entry)) {
+        gvars = ns->gvar_tbl;
+        key = rb_id2sym(entry->id);
+        if (RTEST(rb_hash_has_key(gvars, key))) { // this gvar is already cached
+            retval = rb_hash_aref(gvars, key);
+        } else {
+            retval = (*var->getter)(entry->id, var->data);
+            if (rb_obj_respond_to(retval, rb_intern("clone"), 1)) {
+                retval = rb_funcall(retval, rb_intern("clone"), 0);
+            }
+            rb_hash_aset(gvars, key, retval);
+        }
+    } else {
+        retval = (*var->getter)(entry->id, var->data);
+    }
+    return retval;
 }
 
 VALUE
@@ -972,6 +1014,7 @@ rb_f_global_variables(void)
     if (!rb_ractor_main_p()) {
         rb_raise(rb_eRactorIsolationError, "can not access global variables from non-main Ractors");
     }
+    /* gvar access (get/set) in namespaces creates gvar entries globally */
 
     rb_id_table_foreach(rb_global_tbl, gvar_i, (void *)ary);
     if (!NIL_P(backref)) {
@@ -1134,33 +1177,6 @@ rb_mark_generic_ivar(VALUE obj)
             }
         }
     }
-}
-
-void
-rb_ref_update_generic_ivar(VALUE obj)
-{
-    struct gen_ivtbl *ivtbl;
-
-    if (rb_gen_ivtbl_get(obj, 0, &ivtbl)) {
-        if (rb_shape_obj_too_complex(obj)) {
-            rb_gc_ref_update_table_values_only(ivtbl->as.complex.table);
-        }
-        else {
-            for (uint32_t i = 0; i < ivtbl->as.shape.numiv; i++) {
-                ivtbl->as.shape.ivptr[i] = rb_gc_location(ivtbl->as.shape.ivptr[i]);
-            }
-        }
-    }
-}
-
-void
-rb_mv_generic_ivar(VALUE rsrc, VALUE dst)
-{
-    st_data_t key = (st_data_t)rsrc;
-    st_data_t ivtbl;
-
-    if (st_delete(generic_ivtbl_no_ractor_check(rsrc), &key, &ivtbl))
-        st_insert(generic_ivtbl_no_ractor_check(dst), (st_data_t)dst, ivtbl);
 }
 
 void
@@ -1393,7 +1409,7 @@ rb_ivar_delete(VALUE obj, ID id, VALUE undef)
         switch (BUILTIN_TYPE(obj)) {
           case T_CLASS:
           case T_MODULE:
-            table = RCLASS_IV_HASH(obj);
+            table = RCLASS_WRITABLE_IV_HASH(obj);
             break;
 
           case T_OBJECT:
@@ -2037,7 +2053,7 @@ class_ivar_each(VALUE obj, rb_ivar_foreach_callback_func *func, st_data_t arg)
     itr_data.arg = arg;
     itr_data.func = func;
     if (rb_shape_obj_too_complex(obj)) {
-        rb_st_foreach(RCLASS_IV_HASH(obj), each_hash_iv, (st_data_t)&itr_data);
+        rb_st_foreach(RCLASS_WRITABLE_IV_HASH(obj), each_hash_iv, (st_data_t)&itr_data);
     }
     else {
         iterate_over_shapes_with_callback(shape, func, &itr_data);
@@ -2396,7 +2412,7 @@ autoload_data(VALUE mod, ID id)
     // If we are called with a non-origin ICLASS, fetch the autoload data from
     // the original module.
     if (RB_TYPE_P(mod, T_ICLASS)) {
-        if (FL_TEST_RAW(mod, RICLASS_IS_ORIGIN)) {
+        if (RICLASS_IS_ORIGIN_P(mod)) {
             return 0;
         }
         else {
@@ -2423,6 +2439,10 @@ struct autoload_const {
 
     // The shared "autoload_data" if multiple constants are defined from the same feature.
     VALUE autoload_data_value;
+
+    // The namespace object when the autoload is called in a user namespace
+    // Otherwise, Qnil means the builtin namespace, Qfalse means unspecified.
+    VALUE namespace;
 
     // The module we are loading a constant into.
     VALUE module;
@@ -2561,6 +2581,70 @@ get_autoload_data(VALUE autoload_const_value, struct autoload_const **autoload_c
     return autoload_data;
 }
 
+struct autoload_copy_table_data {
+    VALUE dst_tbl_value;
+    struct st_table *dst_tbl;
+    const rb_namespace_t *ns;
+};
+
+static int
+autoload_copy_table_for_namespace_i(st_data_t key, st_data_t value, st_data_t arg)
+{
+    struct autoload_const *autoload_const;
+    struct autoload_copy_table_data *data = (struct autoload_copy_table_data *)arg;
+    struct st_table *tbl = data->dst_tbl;
+    VALUE tbl_value = data->dst_tbl_value;
+    const rb_namespace_t *ns = data->ns;
+
+    VALUE src_value = (VALUE)value;
+    struct autoload_const *src_const = rb_check_typeddata(src_value, &autoload_const_type);
+    // autoload_data can be shared between copies because the feature is equal between copies.
+    VALUE autoload_data_value = src_const->autoload_data_value;
+    struct autoload_data *autoload_data = rb_check_typeddata(autoload_data_value, &autoload_data_type);
+
+    VALUE new_value = TypedData_Make_Struct(0, struct autoload_const, &autoload_const_type, autoload_const);
+    autoload_const->namespace = rb_get_namespace_object((rb_namespace_t *)ns);
+    autoload_const->module = src_const->module;
+    autoload_const->name = src_const->name;
+    autoload_const->value = src_const->value;
+    autoload_const->flag = src_const->flag;
+    autoload_const->autoload_data_value = autoload_data_value;
+    ccan_list_add_tail(&autoload_data->constants, &autoload_const->cnode);
+
+    st_insert(tbl, (st_data_t)autoload_const->name, (st_data_t)new_value);
+    RB_OBJ_WRITTEN(tbl_value, Qundef, new_value);
+
+    return ST_CONTINUE;
+}
+
+void
+rb_autoload_copy_table_for_namespace(st_table *iv_ptr, const rb_namespace_t *ns)
+{
+    struct st_table *src_tbl, *dst_tbl;
+    VALUE src_tbl_value, dst_tbl_value;
+    if (!rb_st_lookup(iv_ptr, (st_data_t)autoload, (st_data_t *)&src_tbl_value)) {
+        // the class has no autoload table yet.
+        return;
+    }
+    if (!RTEST(src_tbl_value) || !(src_tbl = check_autoload_table(src_tbl_value))) {
+        // the __autoload__ ivar value isn't autoload table value.
+        return;
+    }
+    src_tbl = check_autoload_table(src_tbl_value);
+
+    dst_tbl_value = TypedData_Wrap_Struct(0, &autoload_table_type, NULL);
+    RTYPEDDATA_DATA(dst_tbl_value) = dst_tbl = st_init_numtable();
+
+    struct autoload_copy_table_data data = {
+        .dst_tbl_value = dst_tbl_value,
+        .dst_tbl = dst_tbl,
+        .ns = ns,
+    };
+
+    st_foreach(src_tbl, autoload_copy_table_for_namespace_i, (st_data_t)&data);
+    st_insert(iv_ptr, (st_data_t)autoload, (st_data_t)dst_tbl_value);
+}
+
 void
 rb_autoload(VALUE module, ID name, const char *feature)
 {
@@ -2578,6 +2662,7 @@ struct autoload_arguments {
     VALUE module;
     ID name;
     VALUE feature;
+    VALUE namespace;
 };
 
 static VALUE
@@ -2647,6 +2732,7 @@ autoload_synchronized(VALUE _arguments)
     {
         struct autoload_const *autoload_const;
         VALUE autoload_const_value = TypedData_Make_Struct(0, struct autoload_const, &autoload_const_type, autoload_const);
+        autoload_const->namespace = arguments->namespace;
         autoload_const->module = arguments->module;
         autoload_const->name = arguments->name;
         autoload_const->value = Qundef;
@@ -2663,6 +2749,9 @@ autoload_synchronized(VALUE _arguments)
 void
 rb_autoload_str(VALUE module, ID name, VALUE feature)
 {
+    const rb_namespace_t *ns = rb_current_namespace();
+    VALUE current_namespace = rb_get_namespace_object((rb_namespace_t *)ns);
+
     if (!rb_is_const_id(name)) {
         rb_raise(rb_eNameError, "autoload must be constant name: %"PRIsVALUE"", QUOTE_ID(name));
     }
@@ -2676,6 +2765,7 @@ rb_autoload_str(VALUE module, ID name, VALUE feature)
         .module = module,
         .name = name,
         .feature = feature,
+        .namespace = current_namespace,
     };
 
     VALUE result = rb_mutex_synchronize(autoload_mutex, autoload_synchronized, (VALUE)&arguments);
@@ -2936,22 +3026,82 @@ autoload_apply_constants(VALUE _arguments)
     return Qtrue;
 }
 
+struct autoload_feature_require_data {
+    struct autoload_load_arguments *arguments;
+    VALUE receiver;
+    VALUE feature;
+};
+
+static VALUE
+autoload_feature_require_in_builtin(VALUE arg)
+{
+    struct autoload_feature_require_data *data = (struct autoload_feature_require_data *)arg;
+
+    VALUE result = rb_funcall(data->receiver, rb_intern("require"), 1, data->feature);
+    if (RTEST(result)) {
+        return rb_mutex_synchronize(autoload_mutex, autoload_apply_constants, (VALUE)data->arguments);
+    }
+    return Qnil;
+}
+
+static VALUE
+autoload_feature_require_ensure_in_builtin(VALUE _arg)
+{
+    /*
+     * The gccct should be cleared again after the rb_funcall() to remove
+     * the inconsistent cache entry against the current namespace.
+     */
+    rb_gccct_clear_table(Qnil);
+    rb_namespace_disable_builtin();
+    return Qnil;
+}
+
+static VALUE
+autoload_feature_require_in_builtin_wrap(VALUE arg)
+{
+    return rb_ensure(autoload_feature_require_in_builtin, arg,
+                     autoload_feature_require_ensure_in_builtin, Qnil);
+}
+
 static VALUE
 autoload_feature_require(VALUE _arguments)
 {
+    VALUE receiver = rb_vm_top_self();
+
     struct autoload_load_arguments *arguments = (struct autoload_load_arguments*)_arguments;
 
     struct autoload_const *autoload_const = arguments->autoload_const;
+    VALUE autoload_namespace = autoload_const->namespace;
 
     // We save this for later use in autoload_apply_constants:
     arguments->autoload_data = rb_check_typeddata(autoload_const->autoload_data_value, &autoload_data_type);
 
-    VALUE result = rb_funcall(rb_vm_top_self(), rb_intern("require"), 1, arguments->autoload_data->feature);
+    if (NIL_P(autoload_namespace)) {
+        rb_namespace_enable_builtin();
+        /*
+         * Clear the global cc cache table because the require method can be different from the current
+         * namespace's one and it may cause inconsistent cc-cme states.
+         * For example, the assertion below may fail in gccct_method_search();
+         * VM_ASSERT(vm_cc_check_cme(cc, rb_callable_method_entry(klass, mid)))
+         */
+        rb_gccct_clear_table(Qnil);
+        struct autoload_feature_require_data data = {
+            .arguments = arguments,
+            .receiver = receiver,
+            .feature = arguments->autoload_data->feature,
+        };
+        return rb_namespace_exec(rb_builtin_namespace(), autoload_feature_require_in_builtin_wrap, (VALUE)&data);
+    }
+
+    if (RTEST(autoload_namespace) && NAMESPACE_OPTIONAL_P(rb_get_namespace_t(autoload_namespace))) {
+        receiver = autoload_namespace;
+    }
+
+    VALUE result = rb_funcall(receiver, rb_intern("require"), 1, arguments->autoload_data->feature);
 
     if (RTEST(result)) {
         return rb_mutex_synchronize(autoload_mutex, autoload_apply_constants, _arguments);
     }
-
     return result;
 }
 
@@ -3275,6 +3425,8 @@ rb_mod_remove_const(VALUE mod, VALUE name)
     return rb_const_remove(mod, id);
 }
 
+static rb_const_entry_t * const_lookup(struct rb_id_table *tbl, ID id);
+
 VALUE
 rb_const_remove(VALUE mod, ID id)
 {
@@ -3284,7 +3436,7 @@ rb_const_remove(VALUE mod, ID id)
     rb_check_frozen(mod);
 
     ce = rb_const_lookup(mod, id);
-    if (!ce || !rb_id_table_delete(RCLASS_CONST_TBL(mod), id)) {
+    if (!ce || !rb_id_table_delete(RCLASS_WRITABLE_CONST_TBL(mod), id)) {
         if (rb_const_defined_at(mod, id)) {
             rb_name_err_raise("cannot remove %2$s::%1$s", mod, ID2SYM(id));
         }
@@ -3302,7 +3454,11 @@ rb_const_remove(VALUE mod, ID id)
         val = Qnil;
     }
 
-    ruby_xfree(ce);
+    if (ce == const_lookup(RCLASS_PRIME_CONST_TBL(mod), id)) {
+        // skip free'ing the ce because it still exists in the prime classext
+    } else {
+        ruby_xfree(ce);
+    }
 
     return val;
 }
@@ -3524,8 +3680,8 @@ set_namespace_path_i(ID id, VALUE v, void *payload)
     }
     set_namespace_path(value, build_const_path(parental_path, id));
 
-    if (!RCLASS_EXT(value)->permanent_classpath) {
-        RCLASS_SET_CLASSPATH(value, 0, false);
+    if (!RCLASS_PERMANENT_CLASSPATH_P(value)) {
+        RCLASS_WRITE_CLASSPATH(value, 0, false);
     }
 
     return ID_TABLE_CONTINUE;
@@ -3543,7 +3699,7 @@ set_namespace_path(VALUE named_namespace, VALUE namespace_path)
 
     RB_VM_LOCK_ENTER();
     {
-        RCLASS_SET_CLASSPATH(named_namespace, namespace_path, true);
+        RCLASS_WRITE_CLASSPATH(named_namespace, namespace_path, true);
 
         if (const_table) {
             rb_id_table_foreach(const_table, set_namespace_path_i, &namespace_path);
@@ -3579,9 +3735,10 @@ const_set(VALUE klass, ID id, VALUE val)
 
     RB_VM_LOCK_ENTER();
     {
-        struct rb_id_table *tbl = RCLASS_CONST_TBL(klass);
+        struct rb_id_table *tbl = RCLASS_WRITABLE_CONST_TBL(klass);
         if (!tbl) {
-            RCLASS_CONST_TBL(klass) = tbl = rb_id_table_create(0);
+            tbl = rb_id_table_create(0);
+            RCLASS_WRITE_CONST_TBL(klass, tbl, false);
             rb_clear_constant_cache_for_id(id);
             ce = ZALLOC(rb_const_entry_t);
             rb_id_table_insert(tbl, id, (VALUE)ce);
@@ -3705,6 +3862,7 @@ const_tbl_update(struct autoload_const *ac, int autoload_force)
         setup_const_entry(ce, klass, val, visibility);
     }
     else {
+        tbl = RCLASS_WRITABLE_CONST_TBL(klass);
         rb_clear_constant_cache_for_id(id);
 
         ce = ZALLOC(rb_const_entry_t);
@@ -3867,7 +4025,7 @@ static int
 cvar_lookup_at(VALUE klass, ID id, st_data_t *v)
 {
     if (RB_TYPE_P(klass, T_ICLASS)) {
-        if (FL_TEST_RAW(klass, RICLASS_IS_ORIGIN)) {
+        if (RICLASS_IS_ORIGIN_P(klass)) {
             return 0;
         }
         else {
@@ -3972,10 +4130,11 @@ rb_cvar_set(VALUE klass, ID id, VALUE val)
 
     int result = rb_class_ivar_set(target, id, val);
 
-    struct rb_id_table *rb_cvc_tbl = RCLASS_CVC_TBL(target);
+    struct rb_id_table *rb_cvc_tbl = RCLASS_WRITABLE_CVC_TBL(target);
 
     if (!rb_cvc_tbl) {
-        rb_cvc_tbl = RCLASS_CVC_TBL(target) = rb_id_table_create(2);
+        rb_cvc_tbl = rb_id_table_create(2);
+        RCLASS_WRITE_CVC_TBL(target, rb_cvc_tbl);
     }
 
     struct rb_cvar_class_tbl_entry *ent;
@@ -3999,7 +4158,7 @@ rb_cvar_set(VALUE klass, ID id, VALUE val)
     // cvar in this lookup.
     if (result == 0) {
         if (RB_TYPE_P(target, T_CLASS)) {
-            if (RCLASS_SUBCLASSES(target)) {
+            if (RCLASS_SUBCLASSES_FIRST(target)) {
                 rb_class_foreach_subclass(target, check_for_cvar_table, id);
             }
         }
@@ -4259,7 +4418,7 @@ class_ivar_set_too_complex_table(VALUE obj, void *_data)
 {
     RUBY_ASSERT(rb_shape_obj_too_complex(obj));
 
-    return RCLASS_IV_HASH(obj);
+    return RCLASS_WRITABLE_IV_HASH(obj);
 }
 
 int
@@ -4268,6 +4427,8 @@ rb_class_ivar_set(VALUE obj, ID id, VALUE val)
     RUBY_ASSERT(RB_TYPE_P(obj, T_CLASS) || RB_TYPE_P(obj, T_MODULE));
     bool existing = false;
     rb_check_frozen(obj);
+
+    rb_class_ensure_writable(obj);
 
     RB_VM_LOCK_ENTER();
     {
@@ -4303,11 +4464,9 @@ rb_iv_tbl_copy(VALUE dst, VALUE src)
     rb_ivar_foreach(src, tbl_copy_i, dst);
 }
 
-rb_const_entry_t *
-rb_const_lookup(VALUE klass, ID id)
+static rb_const_entry_t *
+const_lookup(struct rb_id_table *tbl, ID id)
 {
-    struct rb_id_table *tbl = RCLASS_CONST_TBL(klass);
-
     if (tbl) {
         VALUE val;
         bool r;
@@ -4320,4 +4479,10 @@ rb_const_lookup(VALUE klass, ID id)
         if (r) return (rb_const_entry_t *)val;
     }
     return NULL;
+}
+
+rb_const_entry_t *
+rb_const_lookup(VALUE klass, ID id)
+{
+    return const_lookup(RCLASS_CONST_TBL(klass), id);
 }

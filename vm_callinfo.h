@@ -472,19 +472,6 @@ vm_cc_invalidated_p(const struct rb_callcache *cc)
     }
 }
 
-// For RJIT. cc_cme is supposed to have inlined `vm_cc_cme(cc)`.
-static inline bool
-vm_cc_valid_p(const struct rb_callcache *cc, const rb_callable_method_entry_t *cc_cme, VALUE klass)
-{
-    VM_ASSERT(IMEMO_TYPE_P(cc, imemo_callcache));
-    if (cc->klass == klass && !METHOD_ENTRY_INVALIDATED(cc_cme)) {
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
-
 /* callcache: mutate */
 
 static inline void
@@ -610,10 +597,13 @@ vm_cc_check_cme(const struct rb_callcache *cc, const rb_callable_method_entry_t 
 #if 1
         // debug print
 
-        fprintf(stderr, "iseq_overload:%d\n", (int)cme->def->iseq_overload);
+        fprintf(stderr, "iseq_overload:%d, cme:%p (def:%p), cm_cc_cme(cc):%p (def:%p)\n",
+                (int)cme->def->iseq_overload,
+                cme, cme->def,
+                vm_cc_cme(cc), vm_cc_cme(cc)->def);
         rp(cme);
         rp(vm_cc_cme(cc));
-        rb_vm_lookup_overloaded_cme(cme);
+        rp(rb_vm_lookup_overloaded_cme(cme));
 #endif
         return false;
     }

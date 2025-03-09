@@ -328,13 +328,15 @@ ossl_x509_get_signature_algorithm(VALUE self)
 {
     X509 *x509;
     BIO *out;
+    const ASN1_OBJECT *obj;
     VALUE str;
 
     GetX509(self, x509);
     out = BIO_new(BIO_s_mem());
     if (!out) ossl_raise(eX509CertError, NULL);
 
-    if (!i2a_ASN1_OBJECT(out, X509_get0_tbs_sigalg(x509)->algorithm)) {
+    X509_ALGOR_get0(&obj, NULL, NULL, X509_get0_tbs_sigalg(x509));
+    if (!i2a_ASN1_OBJECT(out, obj)) {
 	BIO_free(out);
 	ossl_raise(eX509CertError, NULL);
     }
@@ -711,7 +713,6 @@ ossl_x509_eq(VALUE self, VALUE other)
     return !X509_cmp(a, b) ? Qtrue : Qfalse;
 }
 
-#ifdef HAVE_I2D_RE_X509_TBS
 /*
  * call-seq:
  *    cert.tbs_bytes => string
@@ -741,7 +742,6 @@ ossl_x509_tbs_bytes(VALUE self)
 
     return str;
 }
-#endif
 
 struct load_chained_certificates_arguments {
     VALUE certificates;
@@ -1035,7 +1035,5 @@ Init_ossl_x509cert(void)
     rb_define_method(cX509Cert, "add_extension", ossl_x509_add_extension, 1);
     rb_define_method(cX509Cert, "inspect", ossl_x509_inspect, 0);
     rb_define_method(cX509Cert, "==", ossl_x509_eq, 1);
-#ifdef HAVE_I2D_RE_X509_TBS
     rb_define_method(cX509Cert, "tbs_bytes", ossl_x509_tbs_bytes, 0);
-#endif
 }

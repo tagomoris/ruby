@@ -414,11 +414,11 @@ get_local_variable_ptr(const rb_env_t **envp, ID lid)
             }
 
             const rb_iseq_t *iseq = env->iseq;
-            unsigned int i;
 
             VM_ASSERT(rb_obj_is_iseq((VALUE)iseq));
 
-            for (i=0; i<ISEQ_BODY(iseq)->local_table_size; i++) {
+            const unsigned int local_table_size = ISEQ_BODY(iseq)->local_table_size;
+            for (unsigned int i=0; i<local_table_size; i++) {
                 if (ISEQ_BODY(iseq)->local_table[i] == lid) {
                     if (ISEQ_BODY(iseq)->local_iseq == iseq &&
                             ISEQ_BODY(iseq)->param.flags.has_block &&
@@ -431,7 +431,9 @@ get_local_variable_ptr(const rb_env_t **envp, ID lid)
                     }
 
                     *envp = env;
-                    return &env->env[i];
+                    unsigned int last_lvar = env->env_size+VM_ENV_INDEX_LAST_LVAR
+                        - 1 /* errinfo */;
+                    return &env->env[last_lvar - (local_table_size - i)];
                 }
             }
         }
@@ -662,6 +664,7 @@ cfunc_proc_new(VALUE klass, VALUE ifunc)
 {
     rb_proc_t *proc;
     cfunc_proc_t *sproc;
+    const rb_namespace_t *ns = rb_current_namespace();
     VALUE procval = TypedData_Make_Struct(klass, cfunc_proc_t, &proc_data_type, sproc);
     VALUE *ep;
 
@@ -676,6 +679,7 @@ cfunc_proc_new(VALUE klass, VALUE ifunc)
 
     /* self? */
     RB_OBJ_WRITE(procval, &proc->block.as.captured.code.ifunc, ifunc);
+    proc->ns = ns;
     proc->is_lambda = TRUE;
     return procval;
 }
@@ -711,6 +715,7 @@ sym_proc_new(VALUE klass, VALUE sym)
     GetProcPtr(procval, proc);
 
     vm_block_type_set(&proc->block, block_type_symbol);
+    // No namespace specified: similar to built-in methods
     proc->is_lambda = TRUE;
     RB_OBJ_WRITE(procval, &proc->block.as.symbol, sym);
     return procval;
@@ -750,13 +755,6 @@ rb_vm_ifunc_new(rb_block_call_func_t func, const void *data, int min_argc, int m
     ifunc->argc = arity.argc;
 
     return ifunc;
-}
-
-VALUE
-rb_func_proc_new(rb_block_call_func_t func, VALUE val)
-{
-    struct vm_ifunc *ifunc = rb_vm_ifunc_proc_new(func, (void *)val);
-    return cfunc_proc_new(rb_cProc, (VALUE)ifunc);
 }
 
 VALUE
@@ -1364,14 +1362,20 @@ proc_eq(VALUE self, VALUE other)
 static VALUE
 iseq_location(const rb_iseq_t *iseq)
 {
-    VALUE loc[2];
+    VALUE loc[5];
+    int i = 0;
 
     if (!iseq) return Qnil;
     rb_iseq_check(iseq);
-    loc[0] = rb_iseq_path(iseq);
-    loc[1] = RB_INT2NUM(ISEQ_BODY(iseq)->location.first_lineno);
+    loc[i++] = rb_iseq_path(iseq);
+    const rb_code_location_t *cl = &ISEQ_BODY(iseq)->location.code_location;
+    loc[i++] = RB_INT2NUM(cl->beg_pos.lineno);
+    loc[i++] = RB_INT2NUM(cl->beg_pos.column);
+    loc[i++] = RB_INT2NUM(cl->end_pos.lineno);
+    loc[i++] = RB_INT2NUM(cl->end_pos.column);
+    RUBY_ASSERT_ALWAYS(i == numberof(loc));
 
-    return rb_ary_new4(2, loc);
+    return rb_ary_new_from_values(i, loc);
 }
 
 VALUE
@@ -1995,6 +1999,21 @@ method_owner(VALUE obj)
     struct METHOD *data;
     TypedData_Get_Struct(obj, struct METHOD, &method_data_type, data);
     return data->owner;
+}
+
+static VALUE
+method_namespace(VALUE obj)
+{
+    struct METHOD *data;
+    const rb_namespace_t *ns;
+
+    TypedData_Get_Struct(obj, struct METHOD, &method_data_type, data);
+    ns = data->me->def->ns;
+    if (!ns) return Qfalse;
+    if (ns->ns_object) return ns->ns_object;
+    // This should not happen
+    rb_bug("Unexpected namespace on the method definition: %p", ns);
+    return Qtrue;
 }
 
 void
@@ -4317,7 +4336,7 @@ proc_ruby2_keywords(VALUE procval)
  *
  *     p = proc { it**2 }
  *     l = lambda { it**2 }
- *     p.parameters     # => [[:opt, nil]]
+ *     p.parameters     # => [[:opt]]
  *     p.arity          # => 1
  *     l.parameters     # => [[:req]]
  *     l.arity          # => 1
@@ -4456,6 +4475,8 @@ Init_Proc(void)
     rb_define_method(rb_mKernel, "method", rb_obj_method, 1);
     rb_define_method(rb_mKernel, "public_method", rb_obj_public_method, 1);
     rb_define_method(rb_mKernel, "singleton_method", rb_obj_singleton_method, 1);
+
+    rb_define_method(rb_cMethod, "namespace", method_namespace, 0);
 
     /* UnboundMethod */
     rb_cUnboundMethod = rb_define_class("UnboundMethod", rb_cObject);

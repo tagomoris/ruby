@@ -133,8 +133,8 @@ module Bundler
       validation_set.incomplete_specs.any?
     end
 
-    def missing_specs_for(dependencies)
-      materialize_dependencies(dependencies)
+    def missing_specs_for(deps)
+      materialize_dependencies(deps)
 
       missing_specs
     end
@@ -163,10 +163,18 @@ module Bundler
       @specs.detect {|spec| spec.name == name && spec.match_platform(platform) }
     end
 
+    def specs_with_additional_variants_from(other)
+      sorted | additional_variants_from(other)
+    end
+
     def delete_by_name(name)
       @specs.reject! {|spec| spec.name == name }
 
       reset!
+    end
+
+    def version_for(name)
+      self[name].first&.version
     end
 
     def what_required(spec)
@@ -202,6 +210,10 @@ module Bundler
 
     def valid?(s)
       s.matches_current_metadata? && valid_dependencies?(s)
+    end
+
+    def to_s
+      map(&:full_name).to_s
     end
 
     private
@@ -271,6 +283,12 @@ module Bundler
 
     def all_platforms
       @specs.flat_map {|spec| spec.source.specs.search([spec.name, spec.version]).map(&:platform) }.uniq
+    end
+
+    def additional_variants_from(other)
+      other.select do |spec|
+        version_for(spec.name) == spec.version && valid_dependencies?(spec)
+      end
     end
 
     def valid_dependencies?(s)

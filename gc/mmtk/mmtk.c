@@ -388,7 +388,7 @@ rb_mmtk_update_global_tables(int table)
 {
     RUBY_ASSERT(table < RB_GC_VM_WEAK_TABLE_COUNT);
 
-    rb_gc_vm_weak_table_foreach(rb_mmtk_update_table_i, NULL, NULL, (enum rb_gc_vm_weak_tables)table);
+    rb_gc_vm_weak_table_foreach(rb_mmtk_update_table_i, NULL, NULL, true, (enum rb_gc_vm_weak_tables)table);
 }
 
 // Bootup
@@ -630,8 +630,16 @@ rb_gc_impl_stress_get(void *objspace_ptr)
 VALUE
 rb_gc_impl_config_get(void *objspace_ptr)
 {
-    // TODO
-    return rb_hash_new();
+    VALUE hash = rb_hash_new();
+
+    rb_hash_aset(hash, ID2SYM(rb_intern_const("mmtk_worker_count")), RB_ULONG2NUM(mmtk_worker_count()));
+    rb_hash_aset(hash, ID2SYM(rb_intern_const("mmtk_plan")), rb_str_new_cstr((const char *)mmtk_plan()));
+    rb_hash_aset(hash, ID2SYM(rb_intern_const("mmtk_heap_mode")), rb_str_new_cstr((const char *)mmtk_heap_mode()));
+    size_t heap_min = mmtk_heap_min();
+    if (heap_min > 0) rb_hash_aset(hash, ID2SYM(rb_intern_const("mmtk_heap_min")), RB_ULONG2NUM(heap_min));
+    rb_hash_aset(hash, ID2SYM(rb_intern_const("mmtk_heap_max")), RB_ULONG2NUM(mmtk_heap_max()));
+
+    return hash;
 }
 
 void

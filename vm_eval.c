@@ -400,9 +400,9 @@ static inline const rb_callable_method_entry_t *rb_search_method_entry(VALUE rec
 static inline enum method_missing_reason rb_method_call_status(rb_execution_context_t *ec, const rb_callable_method_entry_t *me, call_type scope, VALUE self);
 
 static VALUE
-gccct_hash(VALUE klass, ID mid)
+gccct_hash(VALUE klass, VALUE namespace, ID mid)
 {
-    return (klass >> 3) ^ (VALUE)mid;
+    return ((klass ^ namespace) >> 3) ^ (VALUE)mid;
 }
 
 NOINLINE(static const struct rb_callcache *gccct_method_search_slowpath(rb_vm_t *vm, VALUE klass, unsigned int index, const struct rb_callinfo * ci));
@@ -447,7 +447,8 @@ scope_to_ci(call_type scope, ID mid, int argc, struct rb_callinfo *ci)
 static inline const struct rb_callcache *
 gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct rb_callinfo *ci)
 {
-    VALUE klass;
+    VALUE klass, ns_value;
+    const rb_namespace_t *ns = rb_current_namespace();
 
     if (!SPECIAL_CONST_P(recv)) {
         klass = RBASIC_CLASS(recv);
@@ -457,8 +458,13 @@ gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct
         klass = CLASS_OF(recv);
     }
 
+    if (NAMESPACE_USER_P(ns)) {
+        ns_value = ns->ns_object;
+    } else {
+        ns_value = 0;
+    }
     // search global method cache
-    unsigned int index = (unsigned int)(gccct_hash(klass, mid) % VM_GLOBAL_CC_CACHE_TABLE_SIZE);
+    unsigned int index = (unsigned int)(gccct_hash(klass, ns_value, mid) % VM_GLOBAL_CC_CACHE_TABLE_SIZE);
     rb_vm_t *vm = rb_ec_vm_ptr(ec);
     const struct rb_callcache *cc = vm->global_cc_cache_table[index];
 
@@ -481,6 +487,17 @@ gccct_method_search(rb_execution_context_t *ec, VALUE recv, ID mid, const struct
 
     RB_DEBUG_COUNTER_INC(gccct_miss);
     return gccct_method_search_slowpath(vm, klass, index, ci);
+}
+
+VALUE
+rb_gccct_clear_table(VALUE _self)
+{
+    int i;
+    rb_vm_t *vm = GET_VM();
+    for (i=0; i<VM_GLOBAL_CC_CACHE_TABLE_SIZE; i++) {
+        vm->global_cc_cache_table[i] = NULL;
+    }
+    return Qnil;
 }
 
 /**
@@ -1692,11 +1709,23 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
     iseq = parent;
     rb_encoding *encoding = rb_enc_get(src);
 
+#define FORWARDING_POSITIONALS_CHR '*'
+#define FORWARDING_POSITIONALS_STR "*"
+#define FORWARDING_KEYWORDS_CHR ':'
+#define FORWARDING_KEYWORDS_STR ":"
+#define FORWARDING_BLOCK_CHR '&'
+#define FORWARDING_BLOCK_STR "&"
+#define FORWARDING_ALL_CHR '.'
+#define FORWARDING_ALL_STR "."
+
     for (int scopes_index = 0; scopes_index < scopes_count; scopes_index++) {
         VALUE iseq_value = (VALUE)iseq;
         int locals_count = ISEQ_BODY(iseq)->local_table_size;
+
         pm_options_scope_t *options_scope = &result.options.scopes[scopes_count - scopes_index - 1];
         pm_options_scope_init(options_scope, locals_count);
+
+        uint8_t forwarding = PM_OPTIONS_SCOPE_FORWARDING_NONE;
 
         for (int local_index = 0; local_index < locals_count; local_index++) {
             pm_string_t *scope_local = &options_scope->locals[local_index];
@@ -1729,10 +1758,23 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
 
                 RB_GC_GUARD(name_obj);
 
-                pm_string_owned_init(scope_local, (uint8_t *)name_dup, length);
+                pm_string_owned_init(scope_local, (uint8_t *) name_dup, length);
+            } else if (local == idMULT) {
+                forwarding |= PM_OPTIONS_SCOPE_FORWARDING_POSITIONALS;
+                pm_string_constant_init(scope_local, FORWARDING_POSITIONALS_STR, 1);
+            } else if (local == idPow) {
+                forwarding |= PM_OPTIONS_SCOPE_FORWARDING_KEYWORDS;
+                pm_string_constant_init(scope_local, FORWARDING_KEYWORDS_STR, 1);
+            } else if (local == idAnd) {
+                forwarding |= PM_OPTIONS_SCOPE_FORWARDING_BLOCK;
+                pm_string_constant_init(scope_local, FORWARDING_BLOCK_STR, 1);
+            } else if (local == idDot3) {
+                forwarding |= PM_OPTIONS_SCOPE_FORWARDING_ALL;
+                pm_string_constant_init(scope_local, FORWARDING_ALL_STR, 1);
             }
         }
 
+        pm_options_scope_forwarding_set(options_scope, forwarding);
         iseq = ISEQ_BODY(iseq)->parent_iseq;
 
         /* We need to GC guard the iseq because the code above malloc memory
@@ -1775,14 +1817,38 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
 
         for (int local_index = 0; local_index < locals_count; local_index++) {
             const pm_string_t *scope_local = &options_scope->locals[local_index];
-
             pm_constant_id_t constant_id = 0;
-            if (pm_string_length(scope_local) > 0) {
-                constant_id = pm_constant_pool_insert_constant(
-                        &result.parser.constant_pool, pm_string_source(scope_local),
-                        pm_string_length(scope_local));
-                st_insert(parent_scope->index_lookup_table, (st_data_t)constant_id, (st_data_t)local_index);
+
+            const uint8_t *source = pm_string_source(scope_local);
+            size_t length = pm_string_length(scope_local);
+
+            if (length > 0) {
+                if (length == 1) {
+                    switch (*source) {
+                      case FORWARDING_POSITIONALS_CHR:
+                        constant_id = PM_CONSTANT_MULT;
+                        break;
+                      case FORWARDING_KEYWORDS_CHR:
+                        constant_id = PM_CONSTANT_POW;
+                        break;
+                      case FORWARDING_BLOCK_CHR:
+                        constant_id = PM_CONSTANT_AND;
+                        break;
+                      case FORWARDING_ALL_CHR:
+                        constant_id = PM_CONSTANT_DOT3;
+                        break;
+                      default:
+                        constant_id = pm_constant_pool_insert_constant(&result.parser.constant_pool, source, length);
+                        break;
+                    }
+                }
+                else {
+                    constant_id = pm_constant_pool_insert_constant(&result.parser.constant_pool, source, length);
+                }
+
+                st_insert(parent_scope->index_lookup_table, (st_data_t) constant_id, (st_data_t) local_index);
             }
+
             pm_constant_id_list_append(&parent_scope->locals, constant_id);
         }
 
@@ -1790,6 +1856,15 @@ pm_eval_make_iseq(VALUE src, VALUE fname, int line,
         node = parent_scope;
         iseq = ISEQ_BODY(iseq)->parent_iseq;
     }
+
+#undef FORWARDING_POSITIONALS_CHR
+#undef FORWARDING_POSITIONALS_STR
+#undef FORWARDING_KEYWORDS_CHR
+#undef FORWARDING_KEYWORDS_STR
+#undef FORWARDING_BLOCK_CHR
+#undef FORWARDING_BLOCK_STR
+#undef FORWARDING_ALL_CHR
+#undef FORWARDING_ALL_STR
 
     int error_state;
     iseq = pm_iseq_new_eval(&result.node, name, fname, Qnil, line, parent, 0, &error_state);
@@ -1916,6 +1991,7 @@ eval_string_with_cref(VALUE self, VALUE src, rb_cref_t *cref, VALUE file, int li
         cref = vm_cref_dup(orig_cref);
     }
     vm_set_eval_stack(ec, iseq, cref, &block);
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -1937,6 +2013,8 @@ eval_string_with_scope(VALUE scope, VALUE src, VALUE file, int line)
     if (ISEQ_BODY(iseq)->local_table_size > 0) {
         vm_bind_update_env(scope, bind, vm_make_env_object(ec, ec->cfp));
     }
+
+    // TODO: set the namespace frame
 
     /* kick */
     return vm_exec(ec);
@@ -2783,6 +2861,7 @@ Init_vm_eval(void)
     rb_define_method(rb_eUncaughtThrow, "value", uncaught_throw_value, 0);
     rb_define_method(rb_eUncaughtThrow, "to_s", uncaught_throw_to_s, 0);
 
+    rb_define_singleton_method(rb_cModule, "gccct_clear_table", rb_gccct_clear_table, 0);
     id_result = rb_intern_const("result");
     id_tag = rb_intern_const("tag");
     id_value = rb_intern_const("value");

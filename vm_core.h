@@ -118,6 +118,7 @@ extern int ruby_assert_critical_section_entered;
 #include "internal.h"
 #include "internal/array.h"
 #include "internal/basic_operators.h"
+#include "internal/namespace.h"
 #include "internal/sanitizers.h"
 #include "internal/serial.h"
 #include "internal/vm.h"
@@ -311,6 +312,7 @@ struct rb_calling_info {
     int argc;
     bool kw_splat;
     VALUE heap_argv;
+    const rb_namespace_t *proc_ns;
 };
 
 #ifndef VM_ARGC_STACK_MAX
@@ -747,6 +749,9 @@ typedef struct rb_vm_struct {
     struct global_object_list *global_object_list;
     const VALUE special_exceptions[ruby_special_error_count];
 
+    /* namespace */
+    rb_namespace_t *main_namespace;
+
     /* load */
     VALUE top_self;
     VALUE load_path;
@@ -824,6 +829,8 @@ typedef struct rb_vm_struct {
         size_t fiber_machine_stack_size;
     } default_params;
 
+    // TODO: a single require_stack can't support multi-threaded require trees
+    VALUE require_stack;
 } rb_vm_t;
 
 /* default values */
@@ -908,6 +915,7 @@ typedef struct rb_control_frame_struct {
 #if VM_DEBUG_BP_CHECK
     VALUE *bp_check;        // cfp[7]
 #endif
+    const rb_namespace_t *ns; // TODO: This is probably NOT OK
 } rb_control_frame_t;
 
 extern const rb_data_type_t ruby_threadptr_data_type;
@@ -1125,6 +1133,9 @@ typedef struct rb_thread_struct {
     /* for load(true) */
     VALUE top_self;
     VALUE top_wrapper;
+    /* for namespace */
+    VALUE namespaces; // Stack of namespaces
+    rb_namespace_t *ns; // The current one
 
     /* thread control */
 
@@ -1267,6 +1278,7 @@ RUBY_SYMBOL_EXPORT_END
 
 typedef struct {
     const struct rb_block block;
+    const rb_namespace_t *ns;
     unsigned int is_from_method: 1;	/* bool */
     unsigned int is_lambda: 1;		/* bool */
     unsigned int is_isolated: 1;        /* bool */
@@ -1832,6 +1844,7 @@ NORETURN(void rb_bug_for_fatal_signal(ruby_sighandler_t default_sighandler, int 
 /* functions about thread/vm execution */
 RUBY_SYMBOL_EXPORT_BEGIN
 VALUE rb_iseq_eval(const rb_iseq_t *iseq);
+VALUE rb_iseq_eval_with_refinement(const rb_iseq_t *iseq, VALUE mod);
 VALUE rb_iseq_eval_main(const rb_iseq_t *iseq);
 VALUE rb_iseq_path(const rb_iseq_t *iseq);
 VALUE rb_iseq_realpath(const rb_iseq_t *iseq);
@@ -1977,7 +1990,7 @@ static inline rb_execution_context_t *
 rb_current_execution_context(bool expect_ec)
 {
 #ifdef RB_THREAD_LOCAL_SPECIFIER
-  #ifdef __APPLE__
+  #if defined(__arm64__) || defined(__aarch64__)
     rb_execution_context_t *ec = rb_current_ec();
   #else
     rb_execution_context_t *ec = ruby_current_ec;

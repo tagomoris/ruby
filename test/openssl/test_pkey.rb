@@ -11,7 +11,6 @@ class OpenSSL::TestPKey < OpenSSL::PKeyTestCase
   end
 
   def test_generic_oid_inspect_x25519
-    omit "X25519 not supported" unless openssl?(1, 1, 0) || libressl?(3, 7, 0)
     omit_on_fips
 
     # X25519 private key
@@ -85,8 +84,6 @@ class OpenSSL::TestPKey < OpenSSL::PKeyTestCase
   def test_ed25519
     # Ed25519 is not FIPS-approved.
     omit_on_fips
-    # See EVP_PKEY_sign in Changelog for 3.7.0: https://github.com/libressl/portable/blob/master/ChangeLog
-    omit "Ed25519 not supported" unless openssl?(1, 1, 1) || libressl?(3, 7, 0)
 
     # Test vector from RFC 8032 Section 7.1 TEST 2
     priv_pem = <<~EOF
@@ -137,7 +134,6 @@ class OpenSSL::TestPKey < OpenSSL::PKeyTestCase
   end
 
   def test_x25519
-    omit "X25519 not supported" unless openssl?(1, 1, 0) || libressl?(3, 7, 0)
     omit_on_fips
 
     # Test vector from RFC 7748 Section 6.1
@@ -160,9 +156,6 @@ class OpenSSL::TestPKey < OpenSSL::PKeyTestCase
     assert_equal bob_pem, bob.public_to_pem
     assert_equal [shared_secret].pack("H*"), alice.derive(bob)
 
-    unless openssl?(1, 1, 1) || libressl?(3, 7, 0)
-      omit "running OpenSSL version does not have raw public key support"
-    end
     alice_private = OpenSSL::PKey.new_raw_private_key("X25519", alice.raw_private_key)
     bob_public = OpenSSL::PKey.new_raw_public_key("X25519", bob.raw_public_key)
     assert_equal alice_private.private_to_pem,
@@ -176,8 +169,6 @@ class OpenSSL::TestPKey < OpenSSL::PKeyTestCase
   end
 
   def test_raw_initialize_errors
-    omit "Ed25519 not supported" unless openssl?(1, 1, 1) || libressl?(3, 7, 0)
-
     assert_raise(OpenSSL::PKey::PKeyError) { OpenSSL::PKey.new_raw_private_key("foo123", "xxx") }
     assert_raise(OpenSSL::PKey::PKeyError) { OpenSSL::PKey.new_raw_private_key("ED25519", "xxx") }
     assert_raise(OpenSSL::PKey::PKeyError) { OpenSSL::PKey.new_raw_public_key("foo123", "xxx") }

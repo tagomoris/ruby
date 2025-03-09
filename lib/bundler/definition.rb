@@ -220,6 +220,8 @@ module Bundler
 
     def prefer_local!
       @prefer_local = true
+
+      sources.prefer_local!
     end
 
     # For given dependency list returns a SpecSet with Gemspec of all the required
@@ -742,7 +744,7 @@ module Bundler
 
       @platforms = result.add_extra_platforms!(platforms) if should_add_extra_platforms?
 
-      SpecSet.new(result.for(dependencies, @platforms))
+      SpecSet.new(result.for(dependencies, @platforms | [Gem::Platform::RUBY]))
     end
 
     def precompute_source_requirements_for_indirect_dependencies?
@@ -1108,7 +1110,7 @@ module Bundler
       return resolution_packages if @explicit_unlocks.empty?
       full_update = dup_for_full_unlock.resolve
       @explicit_unlocks.each do |name|
-        version = full_update[name].first&.version
+        version = full_update.version_for(name)
         resolution_packages.base_requirements[name] = Gem::Requirement.new("= #{version}") if version
       end
       resolution_packages

@@ -332,8 +332,8 @@ usage(const char *name, int help, int highlight, int columns)
         M("-Fpattern",	   "",			   "Set input field separator ($;); used with -a."),
         M("-i[extension]", "",			   "Set ARGF in-place mode;\n"
             "create backup files with given extension."),
-        M("-Idirpath",     "",			   "Add specified directory to load paths ($LOAD_PATH);\n"
-            "multiple -I allowed."),
+        M("-Idirpath",     "",			   "Prepend specified directory to load paths ($LOAD_PATH);\n"
+            "relative paths are expanded; multiple -I are allowed."),
         M("-l",		   "",			   "Set output record separator ($\\) to $/;\n"
             "used for line-oriented output."),
         M("-n",		   "",			   "Run program in gets loop."),
@@ -1825,6 +1825,8 @@ ruby_opt_init(ruby_cmdline_options_t *opt)
     memset(ruby_vm_redefined_flag, 0, sizeof(ruby_vm_redefined_flag));
 
     ruby_init_prelude();
+
+    rb_initialize_main_namespace();
 
     // Initialize JITs after prelude because JITing prelude is typically not optimal.
 #if USE_RJIT

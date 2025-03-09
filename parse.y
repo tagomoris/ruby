@@ -5927,14 +5927,11 @@ literal		: numeric
 
 strings		: string
                     {
-                        NODE *node = $1;
-                        if (!node) {
-                            node = NEW_STR(STRING_NEW0(), &@$);
+                        if (!$1) {
+                            $$ = NEW_STR(STRING_NEW0(), &@$);
+                        } else {
+                            $$ = evstr2dstr(p, $1);
                         }
-                        else {
-                            node = evstr2dstr(p, node);
-                        }
-                        $$ = node;
                     /*% ripper: $:1 %*/
                     }
                 ;
@@ -6489,8 +6486,7 @@ f_norm_arg	: f_bad_arg
 
 f_arg_asgn	: f_norm_arg
                     {
-                        ID id = $1;
-                        arg_var(p, id);
+                        arg_var(p, $1);
                         $$ = $1;
                     }
                 ;
@@ -11513,7 +11509,8 @@ rb_node_lambda_new(struct parser_params *p, rb_node_args_t *nd_args, NODE *nd_bo
 {
     /* Keep the order of node creation */
     NODE *scope = NEW_SCOPE(nd_args, nd_body, loc);
-    rb_node_lambda_t *n = NODE_NEWNODE(NODE_LAMBDA, rb_node_lambda_t, loc);
+    YYLTYPE lambda_loc = code_loc_gen(operator_loc, closing_loc);
+    rb_node_lambda_t *n = NODE_NEWNODE(NODE_LAMBDA, rb_node_lambda_t, &lambda_loc);
     n->nd_body = scope;
     n->operator_loc = *operator_loc;
     n->opening_loc = *opening_loc;

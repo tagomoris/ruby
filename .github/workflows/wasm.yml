@@ -48,7 +48,7 @@ jobs:
       BINARYEN_VERSION: 113
       WASMTIME_VERSION: v15.0.0
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     if: >-
       ${{!(false
@@ -113,6 +113,12 @@ jobs:
           ../src/configure --prefix=$PWD/install
           make
           make install
+
+      - name: Download config.guess with wasi version
+        run: |
+          rm tool/config.guess tool/config.sub
+          ruby tool/downloader.rb -d tool -e gnu config.guess config.sub
+        working-directory: src
 
       - name: Run configure
         run: |

@@ -2890,7 +2890,7 @@ rb_estimate_iv_count(VALUE klass, const rb_iseq_t * initialize_iseq)
     attr_index_t count = (attr_index_t)rb_id_table_size(iv_names);
 
     VALUE superclass = rb_class_superclass(klass);
-    count += RCLASS_EXT(superclass)->max_iv_count;
+    count += RCLASSEXT_MAX_IV_COUNT(RCLASS_EXT_READABLE(superclass));
 
     rb_id_table_free(iv_names);
 
@@ -3606,7 +3606,9 @@ rb_iseq_parameters(const rb_iseq_t *iseq, int is_proc)
     if (is_proc) {
         for (i = 0; i < body->param.lead_num; i++) {
             PARAM_TYPE(opt);
-            rb_ary_push(a, rb_id2str(PARAM_ID(i)) ? ID2SYM(PARAM_ID(i)) : Qnil);
+            if (rb_id2str(PARAM_ID(i))) {
+                rb_ary_push(a, ID2SYM(PARAM_ID(i)));
+            }
             rb_ary_push(args, a);
         }
     }
@@ -3631,7 +3633,9 @@ rb_iseq_parameters(const rb_iseq_t *iseq, int is_proc)
     if (is_proc) {
         for (i = body->param.post_start; i < r; i++) {
             PARAM_TYPE(opt);
-            rb_ary_push(a, rb_id2str(PARAM_ID(i)) ? ID2SYM(PARAM_ID(i)) : Qnil);
+            if (rb_id2str(PARAM_ID(i))) {
+                rb_ary_push(a, ID2SYM(PARAM_ID(i)));
+            }
             rb_ary_push(args, a);
         }
     }

@@ -23,11 +23,13 @@ VALUE rb_search_class_path(VALUE);
 VALUE rb_attr_delete(VALUE, ID);
 void rb_autoload_str(VALUE mod, ID id, VALUE file);
 VALUE rb_autoload_at_p(VALUE, ID, int);
+void rb_autoload_copy_table_for_namespace(st_table *, const rb_namespace_t *);
 NORETURN(VALUE rb_mod_const_missing(VALUE,VALUE));
 rb_gvar_getter_t *rb_gvar_getter_function_of(ID);
 rb_gvar_setter_t *rb_gvar_setter_function_of(ID);
 void rb_gvar_readonly_setter(VALUE v, ID id, VALUE *_);
 void rb_gvar_ractor_local(const char *name);
+void rb_gvar_namespace_ready(const char *name);
 
 /**
  * Sets the name of a module.
@@ -54,8 +56,6 @@ void rb_evict_ivars_to_hash(VALUE obj);
 RUBY_SYMBOL_EXPORT_BEGIN
 /* variable.c (export) */
 void rb_mark_generic_ivar(VALUE obj);
-void rb_ref_update_generic_ivar(VALUE);
-void rb_mv_generic_ivar(VALUE src, VALUE dst);
 VALUE rb_const_missing(VALUE klass, VALUE name);
 int rb_class_ivar_set(VALUE klass, ID vid, VALUE value);
 void rb_iv_tbl_copy(VALUE dst, VALUE src);

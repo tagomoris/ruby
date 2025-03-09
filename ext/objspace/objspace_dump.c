@@ -539,7 +539,7 @@ dump_object(VALUE obj, struct dump_config *dc)
 
       case T_CLASS:
         dump_append(dc, ", \"variation_count\":");
-        dump_append_d(dc, RCLASS_EXT(obj)->variation_count);
+        dump_append_d(dc, rb_class_variation_count(obj));
 
       case T_MODULE:
         if (rb_class_get_superclass(obj)) {
@@ -562,7 +562,7 @@ dump_object(VALUE obj, struct dump_config *dc)
                 }
             }
 
-            if (RCLASS_SINGLETON_P(obj)) {
+            if (rb_class_singleton_p(obj)) {
                 dump_append(dc, ", \"singleton\":true");
             }
         }
@@ -636,6 +636,11 @@ dump_object(VALUE obj, struct dump_config *dc)
     if ((memsize = rb_obj_memsize_of(obj)) > 0) {
         dump_append(dc, ", \"memsize\":");
         dump_append_sizet(dc, memsize);
+    }
+
+    if (FL_TEST(obj, FL_SEEN_OBJ_ID)) {
+        dump_append(dc, ", \"object_id\":");
+        dump_append_lu(dc, RB_NUM2ULONG(rb_obj_id(obj)));
     }
 
     if ((n = rb_obj_gc_flags(obj, flags, sizeof(flags))) > 0) {
