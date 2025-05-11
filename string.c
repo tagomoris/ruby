@@ -45,7 +45,9 @@
 #include "ruby/thread.h"
 #include "ruby/util.h"
 #include "ruby_assert.h"
+#include "shape.h"
 #include "vm_sync.h"
+#include "ruby/internal/attr/nonstring.h"
 
 #if defined HAVE_CRYPT_R
 # if defined HAVE_CRYPT_H
@@ -383,7 +385,16 @@ fstring_hash(VALUE str)
 #define fstring_hash rb_str_hash
 #endif
 
-#define BARE_STRING_P(str) (!FL_ANY_RAW(str, FL_EXIVAR) && RBASIC_CLASS(str) == rb_cString)
+static inline bool
+BARE_STRING_P(VALUE str)
+{
+    if (RBASIC_CLASS(str) != rb_cString) return false;
+
+    if (FL_TEST_RAW(str, FL_EXIVAR)) {
+        return rb_ivar_count(str) == 0;
+    }
+    return true;
+}
 
 static inline st_index_t
 str_do_hash(VALUE str)
@@ -872,7 +883,6 @@ register_fstring(VALUE str, bool copy, bool force_precompute_hash)
     RUBY_ASSERT(RB_TYPE_P(result, T_STRING));
     RUBY_ASSERT(OBJ_FROZEN(result));
     RUBY_ASSERT(!FL_TEST_RAW(result, STR_FAKESTR));
-    RUBY_ASSERT(!FL_TEST_RAW(result, FL_EXIVAR));
     RUBY_ASSERT(RBASIC_CLASS(result) == rb_cString);
 
     return result;
@@ -2346,9 +2356,14 @@ rb_str_with_debug_created_info(VALUE str, VALUE path, int line)
 }
 
 /*
+ * The documentation block below uses an include (instead of inline text)
+ * because the included text has non-ASCII characters (which are not allowed in a C file).
+ */
+
+/*
  *
  *  call-seq:
- *    String.new(string = '', **opts) -> new_string
+ *    String.new(string = ''.encode(Encoding::ASCII_8BIT) , **options) -> new_string
  *
  *  :include: doc/string/new.rdoc
  *
@@ -2766,12 +2781,13 @@ rb_str_empty(VALUE str)
 
 /*
  *  call-seq:
- *    string + other_string -> new_string
+ *    self + other_string -> new_string
  *
- *  Returns a new +String+ containing +other_string+ concatenated to +self+:
+ *  Returns a new string containing +other_string+ concatenated to +self+:
  *
- *    "Hello from " + self.to_s # => "Hello from main"
+ *    'Hello from ' + self.to_s # => "Hello from main"
  *
+ *  Related: see {Converting to New String}[rdoc-ref:String@Converting+to+New+String].
  */
 
 VALUE
@@ -2837,13 +2853,14 @@ rb_str_opt_plus(VALUE str1, VALUE str2)
 
 /*
  *  call-seq:
- *    string * integer -> new_string
+ *    self * n -> new_string
  *
- *  Returns a new +String+ containing +integer+ copies of +self+:
+ *  Returns a new string containing +n+ copies of +self+:
  *
- *    "Ho! " * 3 # => "Ho! Ho! Ho! "
- *    "Ho! " * 0 # => ""
+ *    'Ho!' * 3 # => "Ho!Ho!Ho!"
+ *    'No!' * 0 # => ""
  *
+ *  Related: see {Converting to New String}[rdoc-ref:String@Converting+to+New+String].
  */
 
 VALUE
@@ -2906,20 +2923,22 @@ rb_str_times(VALUE str, VALUE times)
 
 /*
  *  call-seq:
- *    string % object -> new_string
+ *    self % object -> new_string
  *
- *  Returns the result of formatting +object+ into the format specification +self+
- *  (see Kernel#sprintf for formatting details):
+ *  Returns the result of formatting +object+ into the format specifications
+ *  contained in +self+
+ *  (see {Format Specifications}[rdoc-ref:format_specifications.rdoc]):
  *
- *    "%05d" % 123 # => "00123"
+ *    '%05d' % 123 # => "00123"
  *
- *  If +self+ contains multiple substitutions, +object+ must be
- *  an Array or Hash containing the values to be substituted:
+ *  If +self+ contains multiple format specifications,
+ *  +object+ must be an array or hash containing the objects to be formatted:
  *
- *    "%-5s: %016x" % [ "ID", self.object_id ] # => "ID   : 00002b054ec93168"
- *    "foo = %{foo}" % {foo: 'bar'} # => "foo = bar"
- *    "foo = %{foo}, baz = %{baz}" % {foo: 'bar', baz: 'bat'} # => "foo = bar, baz = bat"
+ *    '%-5s: %016x' % [ 'ID', self.object_id ]                # => "ID   : 00002b054ec93168"
+ *    'foo = %{foo}' % {foo: 'bar'}                           # => "foo = bar"
+ *    'foo = %{foo}, baz = %{baz}' % {foo: 'bar', baz: 'bat'} # => "foo = bar, baz = bat"
  *
+ *  Related: see {Converting to New String}[rdoc-ref:String@Converting+to+New+String].
  */
 
 static VALUE
@@ -3596,24 +3615,37 @@ str_uplus(VALUE str)
 
 /*
  * call-seq:
- *   -string -> frozen_string
- *   dedup -> frozen_string
+ *   -self -> frozen_string
  *
- * Returns a frozen, possibly pre-existing copy of the string.
+ * Returns a frozen string equal to +self+.
  *
- * The returned +String+ will be deduplicated as long as it does not have
- * any instance variables set on it and is not a String subclass.
+ * The returned string is +self+ if and only if all of the following are true:
  *
- * Note that <tt>-string</tt> variant is more convenient for defining
- * constants:
+ * - +self+ is already frozen.
+ * - +self+ is an instance of \String (rather than of a subclass of \String)
+ * - +self+ has no instance variables set on it.
  *
- *    FILENAME = -'config/database.yml'
+ * Otherwise, the returned string is a frozen copy of +self+.
  *
- * while +dedup+ is better suitable for using the method in chains
- * of calculations:
+ * Returning +self+, when possible, saves duplicating +self+;
+ * see {Data deduplication}[https://en.wikipedia.org/wiki/Data_deduplication].
  *
- *    @url_list.concat(urls.map(&:dedup))
+ * It may also save duplicating other, already-existing, strings:
  *
+ *   s0 = 'foo'
+ *   s1 = 'foo'
+ *   s0.object_id == s1.object_id       # => false
+ *   (-s0).object_id == (-s1).object_id # => true
+ *
+ * Note that method #-@ is convenient for defining a constant:
+ *
+ *    FileName = -'config/database.yml'
+ *
+ * While its alias #dedup is better suited for chaining:
+ *
+ *   'foo'.dedup.gsub!('o')
+ *
+ * Related: see {Freezing/Unfreezing}[rdoc-ref:String@Freezing-2FUnfreezing].
  */
 static VALUE
 str_uminus(VALUE str)
@@ -11971,7 +12003,7 @@ enc_str_scrub(rb_encoding *enc, VALUE str, VALUE repl, int cr)
     encidx = rb_enc_to_index(enc);
 
 #define DEFAULT_REPLACE_CHAR(str) do { \
-        static const char replace[sizeof(str)-1] = str; \
+        RBIMPL_ATTR_NONSTRING() static const char replace[sizeof(str)-1] = str; \
         rep = replace; replen = (int)sizeof(replace); \
     } while (0)
 

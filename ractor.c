@@ -39,7 +39,8 @@ static void
 ASSERT_ractor_unlocking(rb_ractor_t *r)
 {
 #if RACTOR_CHECK_MODE > 0
-    if (rb_current_execution_context(false) != NULL && r->sync.locked_by == rb_ractor_self(GET_RACTOR())) {
+    const rb_execution_context_t *ec = rb_current_ec_noinline();
+    if (ec != NULL && r->sync.locked_by == rb_ractor_self(rb_ec_ractor_ptr(ec))) {
         rb_bug("recursive ractor locking");
     }
 #endif
@@ -49,7 +50,8 @@ static void
 ASSERT_ractor_locking(rb_ractor_t *r)
 {
 #if RACTOR_CHECK_MODE > 0
-    if (rb_current_execution_context(false) != NULL && r->sync.locked_by != rb_ractor_self(GET_RACTOR())) {
+    const rb_execution_context_t *ec = rb_current_ec_noinline();
+    if (ec != NULL && r->sync.locked_by != rb_ractor_self(rb_ec_ractor_ptr(ec))) {
         rp(r->sync.locked_by);
         rb_bug("ractor lock is not acquired.");
     }
@@ -77,7 +79,7 @@ ractor_lock(rb_ractor_t *r, const char *file, int line)
 static void
 ractor_lock_self(rb_ractor_t *cr, const char *file, int line)
 {
-    VM_ASSERT(cr == GET_RACTOR());
+    VM_ASSERT(cr == rb_ec_ractor_ptr(rb_current_ec_noinline()));
 #if RACTOR_CHECK_MODE > 0
     VM_ASSERT(cr->sync.locked_by != cr->pub.self);
 #endif
@@ -99,7 +101,7 @@ ractor_unlock(rb_ractor_t *r, const char *file, int line)
 static void
 ractor_unlock_self(rb_ractor_t *cr, const char *file, int line)
 {
-    VM_ASSERT(cr == GET_RACTOR());
+    VM_ASSERT(cr == rb_ec_ractor_ptr(rb_current_ec_noinline()));
 #if RACTOR_CHECK_MODE > 0
     VM_ASSERT(cr->sync.locked_by == cr->pub.self);
 #endif
@@ -2070,6 +2072,8 @@ rb_ractor_main_alloc(void)
 }
 
 #if defined(HAVE_WORKING_FORK)
+// Set up the main Ractor for the VM after fork.
+// Puts us in "single Ractor mode"
 void
 rb_ractor_atfork(rb_vm_t *vm, rb_thread_t *th)
 {
@@ -2084,6 +2088,17 @@ rb_ractor_atfork(rb_vm_t *vm, rb_thread_t *th)
 
     VM_ASSERT(vm->ractor.blocking_cnt == 0);
     VM_ASSERT(vm->ractor.cnt == 1);
+}
+
+void
+rb_ractor_terminate_atfork(rb_vm_t *vm, rb_ractor_t *r)
+{
+    rb_gc_ractor_cache_free(r->newobj_cache);
+    r->newobj_cache = NULL;
+    r->status_ = ractor_terminated;
+    r->sync.outgoing_port_closed = true;
+    r->sync.incoming_port_closed = true;
+    r->sync.will_basket.type.e = basket_type_none;
 }
 #endif
 
@@ -3356,17 +3371,17 @@ obj_traverse_replace_i(VALUE obj, struct obj_traverse_replace_data *data)
 } while (0)
 
     if (UNLIKELY(FL_TEST_RAW(obj, FL_EXIVAR))) {
-        struct gen_ivtbl *ivtbl;
-        rb_ivar_generic_ivtbl_lookup(obj, &ivtbl);
+        struct gen_fields_tbl *fields_tbl;
+        rb_ivar_generic_fields_tbl_lookup(obj, &fields_tbl);
 
-        if (UNLIKELY(rb_shape_obj_too_complex(obj))) {
+        if (UNLIKELY(rb_shape_obj_too_complex_p(obj))) {
             struct obj_traverse_replace_callback_data d = {
                 .stop = false,
                 .data = data,
                 .src = obj,
             };
             rb_st_foreach_with_replace(
-                ivtbl->as.complex.table,
+                fields_tbl->as.complex.table,
                 obj_iv_hash_traverse_replace_foreach_i,
                 obj_iv_hash_traverse_replace_i,
                 (st_data_t)&d
@@ -3374,9 +3389,9 @@ obj_traverse_replace_i(VALUE obj, struct obj_traverse_replace_data *data)
             if (d.stop) return 1;
         }
         else {
-            for (uint32_t i = 0; i < ivtbl->as.shape.numiv; i++) {
-                if (!UNDEF_P(ivtbl->as.shape.ivptr[i])) {
-                    CHECK_AND_REPLACE(ivtbl->as.shape.ivptr[i]);
+            for (uint32_t i = 0; i < fields_tbl->as.shape.fields_count; i++) {
+                if (!UNDEF_P(fields_tbl->as.shape.fields[i])) {
+                    CHECK_AND_REPLACE(fields_tbl->as.shape.fields[i]);
                 }
             }
         }
@@ -3397,14 +3412,14 @@ obj_traverse_replace_i(VALUE obj, struct obj_traverse_replace_data *data)
 
       case T_OBJECT:
         {
-            if (rb_shape_obj_too_complex(obj)) {
+            if (rb_shape_obj_too_complex_p(obj)) {
                 struct obj_traverse_replace_callback_data d = {
                     .stop = false,
                     .data = data,
                     .src = obj,
                 };
                 rb_st_foreach_with_replace(
-                    ROBJECT_IV_HASH(obj),
+                    ROBJECT_FIELDS_HASH(obj),
                     obj_iv_hash_traverse_replace_foreach_i,
                     obj_iv_hash_traverse_replace_i,
                     (st_data_t)&d
@@ -3412,8 +3427,8 @@ obj_traverse_replace_i(VALUE obj, struct obj_traverse_replace_data *data)
                 if (d.stop) return 1;
             }
             else {
-                uint32_t len = ROBJECT_IV_COUNT(obj);
-                VALUE *ptr = ROBJECT_IVPTR(obj);
+                uint32_t len = ROBJECT_FIELDS_COUNT(obj);
+                VALUE *ptr = ROBJECT_FIELDS(obj);
 
                 for (uint32_t i = 0; i < len; i++) {
                     CHECK_AND_REPLACE(ptr[i]);
@@ -3573,9 +3588,10 @@ move_leave(VALUE obj, struct obj_traverse_replace_data *data)
 {
     size_t size = rb_gc_obj_slot_size(obj);
     memcpy((void *)data->replacement, (void *)obj, size);
-    FL_UNSET_RAW(data->replacement, FL_SEEN_OBJ_ID);
 
     void rb_replace_generic_ivar(VALUE clone, VALUE obj); // variable.c
+
+    rb_gc_obj_id_moved(data->replacement);
 
     if (UNLIKELY(FL_TEST_RAW(obj, FL_EXIVAR))) {
         rb_replace_generic_ivar(data->replacement, obj);
@@ -3584,7 +3600,7 @@ move_leave(VALUE obj, struct obj_traverse_replace_data *data)
     // Avoid mutations using bind_call, etc.
     // We keep FL_SEEN_OBJ_ID so GC later clean the obj_id_table.
     MEMZERO((char *)obj + sizeof(struct RBasic), char, size - sizeof(struct RBasic));
-    RBASIC(obj)->flags = T_OBJECT | FL_FREEZE | (RBASIC(obj)->flags & FL_SEEN_OBJ_ID);
+    RBASIC(obj)->flags = T_OBJECT | FL_FREEZE;
     RBASIC_SET_CLASS_RAW(obj, rb_cRactorMovedObject);
     return traverse_cont;
 }

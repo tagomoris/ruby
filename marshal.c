@@ -40,6 +40,7 @@
 #include "ruby/util.h"
 #include "builtin.h"
 #include "shape.h"
+#include "ruby/internal/attr/nonstring.h"
 
 #define BITSPERSHORT (2*CHAR_BIT)
 #define SHORTMASK ((1<<BITSPERSHORT)-1)
@@ -530,7 +531,7 @@ w_extended(VALUE klass, struct dump_arg *arg, int check)
         klass = RCLASS_SUPER(klass);
     }
     while (BUILTIN_TYPE(klass) == T_ICLASS) {
-        if (!FL_TEST(klass, RICLASS_IS_ORIGIN) ||
+        if (!RICLASS_IS_ORIGIN_P(klass) ||
                 BUILTIN_TYPE(RBASIC(klass)->klass) != T_MODULE) {
             VALUE path = rb_class_name(RBASIC(klass)->klass);
             w_byte(TYPE_EXTENDED, arg);
@@ -712,20 +713,18 @@ has_ivars(VALUE obj, VALUE encname, VALUE *ivobj)
 static void
 w_ivar_each(VALUE obj, st_index_t num, struct dump_call_arg *arg)
 {
-    shape_id_t shape_id = rb_shape_get_shape_id(arg->obj);
+    shape_id_t shape_id = rb_obj_shape_id(arg->obj);
     struct w_ivar_arg ivarg = {arg, num};
     if (!num) return;
     rb_ivar_foreach(obj, w_obj_each, (st_data_t)&ivarg);
 
-    if (shape_id != rb_shape_get_shape_id(arg->obj)) {
-        rb_shape_t * expected_shape = rb_shape_get_shape_by_id(shape_id);
-        rb_shape_t * actual_shape = rb_shape_get_shape(arg->obj);
-
+    shape_id_t actual_shape_id = rb_obj_shape_id(arg->obj);
+    if (shape_id != actual_shape_id) {
         // If the shape tree got _shorter_ then we probably removed an IV
         // If the shape tree got longer, then we probably added an IV.
         // The exception message might not be accurate when someone adds and
         // removes the same number of IVs, but they will still get an exception
-        if (rb_shape_depth(expected_shape) > rb_shape_depth(actual_shape)) {
+        if (rb_shape_depth(shape_id) > rb_shape_depth(rb_obj_shape_id(arg->obj))) {
             rb_raise(rb_eRuntimeError, "instance variable removed from %"PRIsVALUE" instance",
                     CLASS_OF(arg->obj));
         }
@@ -1515,7 +1514,7 @@ name_equal(const char *name, size_t nlen, const char *p, long l)
 static int
 sym2encidx(VALUE sym, VALUE val)
 {
-    static const char name_encoding[8] = "encoding";
+    RBIMPL_ATTR_NONSTRING() static const char name_encoding[8] = "encoding";
     const char *p;
     long l;
     if (rb_enc_get_index(sym) != ENCINDEX_US_ASCII) return -1;
