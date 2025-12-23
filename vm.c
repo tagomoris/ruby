@@ -3219,6 +3219,11 @@ rb_vm_loading_box(const rb_execution_context_t *ec)
             cfp = find_loader_control_frame(ec, cfp, end_cfp);
             return current_box_on_cfp(ec, cfp);
         }
+        else if (VM_ENV_FRAME_TYPE_P(cfp->ep, VM_FRAME_MAGIC_TOP)) {
+            // evaluating the most recently required/loaded file (or calling Ruby::Box#eval),
+            // so the loading box is exactly equal to the current box
+            return current_box_on_cfp(ec, current_cfp);
+        }
         cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
     }
     // no require/load with explicit boxes.

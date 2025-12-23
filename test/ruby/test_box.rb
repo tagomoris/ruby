@@ -843,4 +843,34 @@ class TestBox < Test::Unit::TestCase
       assert_empty(Dir.children(tmpdir))
     end
   end
+
+  def test_load_path_in_eval_in_boxed_require
+    Dir.mktmpdir do |tmpdir|
+      env = ENV_ENABLE_BOX.merge({'TMPDIR'=>tmpdir})
+      assert_separately([env], __FILE__, __LINE__, "#{<<~"begin;"}\n#{<<~'end;'}", ignore_stderr: true)
+      begin;
+        File.open(File.join(ENV['TMPDIR'], 'eval_require.rb'), 'w') do |file|
+          file.write <<~RUBY
+            module InBox
+              MAIN_LOAD_PATH = Ruby::Box.main.load_path
+              MAIN_EVAL_LOAD_PATH = Ruby::Box.main.eval('$LOAD_PATH')
+            end
+          RUBY
+        end
+
+        box = Ruby::Box.new
+        box.load_path << ENV['TMPDIR']
+        box.require('eval_require')
+
+        assert_equal box::InBox::MAIN_LOAD_PATH, box::InBox::MAIN_EVAL_LOAD_PATH
+        assert_equal box::InBox::MAIN_LOAD_PATH.object_id, box::InBox::MAIN_EVAL_LOAD_PATH.object_id
+        assert_equal Ruby::Box.main, Ruby::Box.current
+        assert_equal $LOAD_PATH, box::InBox::MAIN_EVAL_LOAD_PATH
+      end;
+    end
+  end
+
+  def test_loading_installed_gem_when_box_is_enabled
+    assert_equal 1, 2
+  end
 end
